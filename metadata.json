@@ -1,0 +1,10 @@
+{
+  "name": "نظام WE الذكي لمتابعة الطلاب والبطاقات الرقمية",
+  "description": "منظومة متابعة الطلاب السلوكية والأكاديمية، والبطاقات التعريفية برمز QR والمهام السرية لمدرسة WE للتطبيقات التكنولوجية",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
