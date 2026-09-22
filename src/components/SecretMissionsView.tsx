@@ -18,13 +18,15 @@ import {
   Eye,
   Check,
   X,
-  Code
+  Code,
+  Trash2
 } from 'lucide-react';
 
 interface SecretMissionsViewProps {
   missions: SecretMission[];
   students: Student[];
   onAddMission: (newMission: SecretMission) => void;
+  onDeleteMission?: (missionId: string) => void;
   onGradeSubmission: (
     missionId: string,
     studentId: string,
@@ -44,6 +46,7 @@ export const SecretMissionsView: React.FC<SecretMissionsViewProps> = ({
   missions,
   students,
   onAddMission,
+  onDeleteMission,
   onGradeSubmission,
   onSimulateStudentQuiz
 }) => {
@@ -231,50 +234,87 @@ export const SecretMissionsView: React.FC<SecretMissionsViewProps> = ({
       </div>
 
       {/* Missions Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-        {filteredMissions.map((mission) => {
-          const approvedCount = mission.submissions.filter((s) => s.status === 'approved').length;
-          const pendingCount = mission.submissions.filter((s) => s.status === 'pending').length;
-
-          return (
-            <div
-              key={mission.id}
-              className="bg-white rounded-3xl p-5 border border-slate-200 shadow-xs hover:shadow-md transition-all flex flex-col justify-between relative group"
+      {filteredMissions.length === 0 ? (
+        <div className="bg-white rounded-3xl p-12 text-center border-2 border-dashed border-purple-200 shadow-xs">
+          <div className="w-16 h-16 bg-purple-50 text-purple-700 rounded-3xl flex items-center justify-center mx-auto mb-4 border border-purple-100">
+            <Target className="w-8 h-8" />
+          </div>
+          <h3 className="text-lg font-black text-slate-900">لا توجد مهام سرية مضافة حالياً</h3>
+          <p className="text-xs text-slate-500 max-w-md mx-auto mt-1 leading-relaxed">
+            تم تفريغ كافة البيانات الوهمية بنجاح! يمكنك الآن الضغط على زر "إنشاء مهمة سرية جديدة" باللون البنفسجي بالأعلى لإضافة كويزاتك الحقيقية أو مهامك البرمجية والعملية لطلابك، مع إمكانية حذف أي مهمة بعد إنشائها في أي وقت.
+          </p>
+          <div className="mt-5">
+            <button
+              onClick={() => setIsCreateOpen(true)}
+              className="inline-flex items-center gap-2 px-5 py-2.5 bg-purple-700 hover:bg-purple-800 text-white text-xs font-bold rounded-2xl shadow-xs transition-all active:scale-95"
             >
-              <div>
-                {/* Header Tag */}
-                <div className="flex items-center justify-between gap-2 mb-3">
-                  <div className="flex items-center gap-1.5">
-                    <span
-                      className={`p-1.5 rounded-xl text-xs ${
-                        mission.type === 'quiz'
-                          ? 'bg-cyan-100 text-cyan-800'
-                          : mission.type === 'task'
-                          ? 'bg-purple-100 text-purple-800'
-                          : 'bg-amber-100 text-amber-800'
-                      }`}
-                    >
-                      {mission.type === 'quiz' ? (
-                        <HelpCircle className="w-4 h-4" />
-                      ) : mission.type === 'task' ? (
-                        <FileCode className="w-4 h-4" />
-                      ) : (
-                        <Code className="w-4 h-4" />
-                      )}
-                    </span>
-                    <span className="text-xs font-bold text-slate-500">
-                      {mission.type === 'quiz'
-                        ? 'كويز سري'
-                        : mission.type === 'task'
-                        ? 'تاسك عملي'
-                        : 'تحدي تقني'}
-                    </span>
-                  </div>
+              <Plus className="w-4 h-4" />
+              <span>إنشاء أول مهمة سرية الآن</span>
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+          {filteredMissions.map((mission) => {
+            const approvedCount = mission.submissions.filter((s) => s.status === 'approved').length;
+            const pendingCount = mission.submissions.filter((s) => s.status === 'pending').length;
 
-                  <span className="text-xs font-black px-2.5 py-1 rounded-full bg-amber-50 text-amber-700 border border-amber-200">
-                    +{mission.pointsReward} نقطة
-                  </span>
-                </div>
+            return (
+              <div
+                key={mission.id}
+                className="bg-white rounded-3xl p-5 border border-slate-200 shadow-xs hover:shadow-md transition-all flex flex-col justify-between relative group"
+              >
+                <div>
+                  {/* Header Tag */}
+                  <div className="flex items-center justify-between gap-2 mb-3">
+                    <div className="flex items-center gap-1.5">
+                      <span
+                        className={`p-1.5 rounded-xl text-xs ${
+                          mission.type === 'quiz'
+                            ? 'bg-cyan-100 text-cyan-800'
+                            : mission.type === 'task'
+                            ? 'bg-purple-100 text-purple-800'
+                            : 'bg-amber-100 text-amber-800'
+                        }`}
+                      >
+                        {mission.type === 'quiz' ? (
+                          <HelpCircle className="w-4 h-4" />
+                        ) : mission.type === 'task' ? (
+                          <FileCode className="w-4 h-4" />
+                        ) : (
+                          <Code className="w-4 h-4" />
+                        )}
+                      </span>
+                      <span className="text-xs font-bold text-slate-500">
+                        {mission.type === 'quiz'
+                          ? 'كويز سري'
+                          : mission.type === 'task'
+                          ? 'تاسك عملي'
+                          : 'تحدي تقني'}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs font-black px-2.5 py-1 rounded-full bg-amber-50 text-amber-700 border border-amber-200">
+                        +{mission.pointsReward} نقطة
+                      </span>
+                      {onDeleteMission && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (window.confirm(`هل أنت متأكد من رغبتك في حذف مهمة "${mission.title}" نهائياً؟`)) {
+                              onDeleteMission(mission.id);
+                            }
+                          }}
+                          className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors border border-transparent hover:border-rose-200"
+                          title="حذف هذه المهمة نهائياً"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
 
                 {/* Title & Description */}
                 <h3 className="font-extrabold text-base text-slate-900 leading-snug mb-2 group-hover:text-purple-700 transition-colors">
@@ -358,6 +398,7 @@ export const SecretMissionsView: React.FC<SecretMissionsViewProps> = ({
           );
         })}
       </div>
+      )}
 
       {/* CREATE NEW MISSION MODAL */}
       {isCreateOpen && (

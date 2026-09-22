@@ -109,15 +109,7 @@ export function subscribeToMissions(
     colRef,
     async (snapshot) => {
       if (snapshot.empty) {
-        // Auto seed initial missions if cloud collection is brand new
-        try {
-          for (const m of INITIAL_MISSIONS) {
-            await setDoc(doc(db, MISSIONS_COLLECTION, m.id), m);
-          }
-        } catch (e) {
-          console.error('Failed to seed initial missions:', e);
-        }
-        onUpdate(INITIAL_MISSIONS);
+        onUpdate([]);
         return;
       }
 
@@ -249,3 +241,17 @@ export async function syncAllMissionsToCloud(missions: SecretMission[]): Promise
     throw err;
   }
 }
+
+/**
+ * Delete a mission from Cloud Firestore
+ */
+export async function deleteMissionFromCloud(missionId: string): Promise<void> {
+  try {
+    const docRef = doc(db, MISSIONS_COLLECTION, missionId);
+    await deleteDoc(docRef);
+  } catch (err) {
+    console.error('Error deleting mission from cloud:', err);
+    throw err;
+  }
+}
+

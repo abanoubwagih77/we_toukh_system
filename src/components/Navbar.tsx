@@ -14,6 +14,7 @@ import {
   ShieldCheck,
   Crown
 } from 'lucide-react';
+import { TeacherAvatar } from './TeacherAvatar';
 
 export type MainViewType = 'students' | 'leaderboard' | 'attribution' | 'missions' | 'badges' | 'admin';
 
@@ -49,6 +50,15 @@ export const Navbar: React.FC<NavbarProps> = ({
             <div className="w-9 h-9 rounded-xl bg-linear-to-tr from-[#4A154B] to-[#7C3AED] flex items-center justify-center text-white font-black text-base shadow-xs shrink-0 select-none">
               we
             </div>
+            {currentTeacher && (
+              <div className="hidden sm:block shrink-0">
+                <TeacherAvatar
+                  name={currentTeacher.name}
+                  avatar={currentTeacher.avatar}
+                  size="sm"
+                />
+              </div>
+            )}
             <div className="min-w-0">
               <div className="flex items-center gap-1.5">
                 <span className="font-extrabold text-sm sm:text-base text-slate-900 leading-tight truncate">

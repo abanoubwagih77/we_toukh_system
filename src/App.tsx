@@ -33,7 +33,8 @@ import {
   syncAllTeachersToCloud,
   deleteTeacherFromCloud,
   saveMissionToCloud,
-  syncAllMissionsToCloud
+  syncAllMissionsToCloud,
+  deleteMissionFromCloud
 } from './services/firebase';
 import {
   Search,
@@ -57,6 +58,10 @@ const STORAGE_KEY_TEACHERS = 'we_school_teachers_v3';
 // Helper to ensure any old references to "بهاء وجيه" or outdated admin state migrate dynamically
 const cleanTeacherData = (list: Teacher[]): Teacher[] => {
   return list.map((t) => {
+    let avatar = t.avatar || '';
+    if (avatar.includes('photo-1472099645785-5658abf4ff4e') || avatar.includes('unsplash.com')) {
+      avatar = '';
+    }
     if (t.id === 't-admin' || t.name.includes('بهاء وجيه') || t.name.includes('بهاء')) {
       return {
         ...t,
@@ -64,15 +69,24 @@ const cleanTeacherData = (list: Teacher[]): Teacher[] => {
         name: 'م. أبانوب وجيه (مدير المنظومة)',
         username: t.username || 'admin',
         role: 'admin',
-        title: 'مدير المنظومة والأدمن العام',
-        subject: 'هندسة الشبكات والاتصالات والأدمن العام',
-        phone: t.phone || '01220000001',
-        email: 'admin@we.school.edu.eg',
+        title: 'مهندس',
+        avatar,
+        subject: 'الإدارة العامة والإشراف التكنولوجي',
+        phone: t.phone || '',
+        email: t.email || '',
         status: 'active'
       };
     }
-    return t;
+    return {
+      ...t,
+      avatar
+    };
   });
+};
+
+// Filter out old static/mock missions
+const cleanMissionData = (list: SecretMission[]): SecretMission[] => {
+  return (list || []).filter((m) => m.id !== 'mission-001' && m.id !== 'mission-002');
 };
 
 export default function App() {
@@ -87,8 +101,8 @@ export default function App() {
   });
 
   const [missions, setMissions] = useState<SecretMission[]>(() => {
-    const saved = safeLocalStorageGet<SecretMission[]>(STORAGE_KEY_MISSIONS, INITIAL_MISSIONS);
-    return saved && saved.length > 0 ? saved : INITIAL_MISSIONS;
+    const saved = safeLocalStorageGet<SecretMission[]>(STORAGE_KEY_MISSIONS, []);
+    return cleanMissionData(saved || []);
   });
 
   // Auth State: 'portal' | 'teacher' | 'student'
@@ -207,9 +221,14 @@ export default function App() {
     // 3. Subscribe to Secret Missions
     const unsubscribeMissions = subscribeToMissions(
       (cloudMissions) => {
-        if (cloudMissions.length > 0) {
-          setMissions(cloudMissions);
-        }
+        const cleaned = cleanMissionData(cloudMissions);
+        setMissions(cleaned);
+        // Delete legacy demo missions if present in Firestore
+        cloudMissions.forEach((m) => {
+          if (m.id === 'mission-001' || m.id === 'mission-002') {
+            deleteMissionFromCloud(m.id).catch(console.error);
+          }
+        });
       },
       (err) => console.warn('Firestore missions sync error:', err)
     );
@@ -235,7 +254,7 @@ export default function App() {
         }
         const idbMissions = await loadFromIndexedDB<SecretMission[]>('missions');
         if (idbMissions && idbMissions.length > 0 && missions.length === 0) {
-          setMissions(idbMissions);
+          setMissions(cleanMissionData(idbMissions));
         }
       } catch (err) {
         console.error('IDB restore check:', err);
@@ -613,6 +632,11 @@ export default function App() {
     deleteTeacherFromCloud(teacherId).catch(console.error);
   };
 
+  const handleDeleteMission = (missionId: string) => {
+    setMissions((prev) => prev.filter((m) => m.id !== missionId));
+    deleteMissionFromCloud(missionId).catch(console.error);
+  };
+
   const handleImpersonateTeacher = (teacher: Teacher) => {
     setCurrentTeacher(teacher);
     setActiveView('students');
@@ -959,6 +983,7 @@ export default function App() {
             missions={missions}
             students={students}
             onAddMission={handleAddMission}
+            onDeleteMission={handleDeleteMission}
             onGradeSubmission={handleGradeSubmission}
             onSimulateStudentQuiz={handleSimulateStudentQuiz}
           />
@@ -981,6 +1006,25 @@ export default function App() {
             onRestoreFullDatabase={handleRestoreFullDatabase}
             onSeedSampleStudents={handleSeedSampleStudents}
           />
+        )}
+        {activeView === 'admin' && currentTeacher?.role !== 'admin' && (
+          <div className="text-center py-16 bg-white rounded-3xl border border-rose-200 p-8 shadow-xs max-w-md mx-auto my-8">
+            <div className="w-14 h-14 rounded-2xl bg-rose-100 text-rose-600 flex items-center justify-center mx-auto mb-4 text-2xl font-black">
+              🔒
+            </div>
+            <h3 className="text-base font-black text-slate-900 mb-2">
+              منطقة محمية - خاصة بالإدارة العليا
+            </h3>
+            <p className="text-xs text-slate-600 leading-relaxed mb-6">
+              عذراً، إدارة وتعديل حسابات المعلمين مقصورة حصراً على حساب مدير المنظومة (Super Admin).
+            </p>
+            <button
+              onClick={() => setActiveView('students')}
+              className="px-5 py-2.5 bg-purple-700 hover:bg-purple-800 text-white font-bold text-xs rounded-xl transition-colors cursor-pointer"
+            >
+              العودة لقائمة الطلاب
+            </button>
+          </div>
         )}
       </main>
 

@@ -5,14 +5,11 @@ import {
   Lock,
   User,
   GraduationCap,
-  School,
   Search,
   KeyRound,
   ShieldCheck,
-  Sparkles,
   ArrowRight,
-  IdCard,
-  Cpu
+  IdCard
 } from 'lucide-react';
 
 interface AuthPortalProps {
@@ -62,7 +59,7 @@ export const AuthPortal: React.FC<AuthPortalProps> = ({
       }
       onTeacherLogin(teacher);
     } else {
-      setTeacherError('اسم المستخدم أو كلمة المرور غير صحيحة. يمكنك النقر على الحسابات التجريبية بالأسفل.');
+      setTeacherError('اسم المستخدم أو كلمة المرور غير صحيحة. يرجى التأكد من البيانات المدخلة.');
     }
   };
 
@@ -87,7 +84,7 @@ export const AuthPortal: React.FC<AuthPortalProps> = ({
       onStudentLogin(found);
     } else {
       setStudentError(
-        'لم يتم العثور على طالب بهذا الرقم القومي أو الكود. يرجى التأكد من الـ 14 رقماً أو اختيار طالب تجريبي.'
+        'لم يتم العثور على طالب بهذا الرقم القومي أو الكود. يرجى التأكد من الـ 14 رقماً.'
       );
     }
   };
@@ -183,36 +180,10 @@ export const AuthPortal: React.FC<AuthPortalProps> = ({
               <ArrowRight className="w-4 h-4" />
             </button>
 
-            {/* Quick Demo Students Chips */}
-            <div className="pt-3 border-t border-slate-100">
-              <div className="text-[11px] font-bold text-slate-500 mb-2 flex items-center justify-between">
-                <span>أرقام قومية تجريبية مسجلة:</span>
-                <span className="text-[10px] text-purple-700 bg-purple-50 px-2 py-0.5 rounded-full font-bold">
-                  انقر لتعبئة الرقم القومي
-                </span>
-              </div>
-              <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
-                {students.slice(0, 3).map((s) => (
-                  <button
-                    key={s.id}
-                    type="button"
-                    onClick={() => {
-                      setNationalIdInput(s.nationalId);
-                    }}
-                    className="w-full text-right p-2 rounded-xl bg-slate-50 hover:bg-purple-50 border border-slate-200 hover:border-purple-300 text-xs transition-all flex items-center justify-between"
-                  >
-                    <div>
-                      <span className="font-bold text-slate-800">{s.name}</span>
-                      <span className="text-[10px] text-slate-400 block font-mono">
-                        الرقم القومي: {s.nationalId}
-                      </span>
-                    </div>
-                    <span className="text-[10px] font-bold text-purple-700 bg-white border border-purple-200 px-2 py-0.5 rounded-md">
-                      تعبئة الرقم
-                    </span>
-                  </button>
-                ))}
-              </div>
+            <div className="pt-2 text-center">
+              <p className="text-[11px] text-slate-400">
+                🔒 الدخول مخصص فقط للطلاب المسجلين بالرقم القومي
+              </p>
             </div>
           </form>
         )}
@@ -226,7 +197,7 @@ export const AuthPortal: React.FC<AuthPortalProps> = ({
                 <input
                   type="text"
                   required
-                  placeholder="مثال: ahmed.mamdouh"
+                  placeholder="أدخل اسم المستخدم الخاص بك"
                   value={teacherUsername}
                   onChange={(e) => setTeacherUsername(e.target.value)}
                   className="w-full px-4 py-3 pl-10 text-xs sm:text-sm border border-slate-200 rounded-2xl focus:outline-hidden focus:ring-2 focus:ring-purple-500 bg-slate-50/50"
@@ -264,55 +235,10 @@ export const AuthPortal: React.FC<AuthPortalProps> = ({
               <span>تسجيل دخول المعلم للوحة التحكم</span>
             </button>
 
-            {/* Quick Demo Teachers */}
-            <div className="pt-3 border-t border-slate-100">
-              <div className="text-[11px] font-bold text-slate-500 mb-2 flex items-center justify-between">
-                <span>حسابات تجريبية مسجلة بالنظام:</span>
-                <span className="text-[10px] text-purple-700 bg-purple-50 px-2 py-0.5 rounded-full font-bold">
-                  انقر لتعبئة البيانات والدخول
-                </span>
-              </div>
-              <div className="grid grid-cols-1 gap-1.5 max-h-48 overflow-y-auto pr-1">
-                {activeTeachers.map((t) => {
-                  const isAdmin = t.role === 'admin';
-                  return (
-                    <button
-                      key={t.id}
-                      type="button"
-                      onClick={() => {
-                        setTeacherUsername(t.username);
-                        setTeacherPassword(t.password);
-                      }}
-                      className={`w-full text-right p-2 rounded-xl border text-xs transition-all flex items-center justify-between ${
-                        isAdmin
-                          ? 'bg-amber-50/70 border-amber-300 hover:bg-amber-100/80'
-                          : 'bg-slate-50 hover:bg-purple-50 border-slate-200 hover:border-purple-300'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2">
-                        {isAdmin ? (
-                          <span className="px-1.5 py-0.5 rounded-md bg-amber-400 text-slate-950 font-black text-[9px]">
-                            أدمن (مدير)
-                          </span>
-                        ) : (
-                          <span className="px-1.5 py-0.5 rounded-md bg-slate-200 text-slate-700 font-bold text-[9px]">
-                            معلم/مهندس
-                          </span>
-                        )}
-                        <div>
-                          <span className="font-bold text-slate-800">{t.name}</span>
-                          <span className="text-[10px] text-slate-500 block">
-                            يوزر: <span className="font-mono text-purple-700">{t.username}</span> | مادة: {t.subject}
-                          </span>
-                        </div>
-                      </div>
-                      <span className="text-[10px] font-bold text-slate-700 bg-white border border-slate-200 px-2 py-0.5 rounded-md font-mono shrink-0">
-                        باسورد: {t.password}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
+            <div className="pt-2 text-center">
+              <p className="text-[11px] text-slate-400">
+                🔒 لوحة خاصة بأعضاء هيئة التدريس والإدارة المدرسية
+              </p>
             </div>
           </form>
         )}

@@ -36,6 +36,7 @@ import {
 } from 'lucide-react';
 import { compressImageFile } from '../utils/imageUtils';
 import { exportSystemDatabaseJSON } from '../utils/exportUtils';
+import { TeacherAvatar } from './TeacherAvatar';
 
 interface AdminTeachersDashboardProps {
   teachers: Teacher[];
@@ -49,8 +50,6 @@ interface AdminTeachersDashboardProps {
   onRestoreFullDatabase?: (data: { students: Student[]; teachers: Teacher[]; missions: any[] }) => void;
   onSeedSampleStudents?: () => void;
 }
-
-const DEFAULT_AVATAR = 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=crop&q=80&w=200';
 
 export const AdminTeachersDashboard: React.FC<AdminTeachersDashboardProps> = ({
   teachers,
@@ -91,7 +90,7 @@ export const AdminTeachersDashboard: React.FC<AdminTeachersDashboardProps> = ({
     phone: '',
     email: '',
     status: 'active' as 'active' | 'suspended',
-    avatar: DEFAULT_AVATAR
+    avatar: ''
   });
 
   const [formError, setFormError] = useState<string>('');
@@ -151,7 +150,10 @@ export const AdminTeachersDashboard: React.FC<AdminTeachersDashboardProps> = ({
       phone: teacher.phone || '',
       email: teacher.email || '',
       status: teacher.status || 'active',
-      avatar: teacher.avatar || DEFAULT_AVATAR
+      avatar:
+        teacher.avatar && !teacher.avatar.includes('photo-1472099645785-5658abf4ff4e')
+          ? teacher.avatar
+          : ''
     });
     setFormError('');
   };
@@ -169,7 +171,7 @@ export const AdminTeachersDashboard: React.FC<AdminTeachersDashboardProps> = ({
       phone: '',
       email: '',
       status: 'active',
-      avatar: DEFAULT_AVATAR
+      avatar: ''
     });
     setFormError('');
     setIsAddModalOpen(true);
@@ -229,7 +231,7 @@ export const AdminTeachersDashboard: React.FC<AdminTeachersDashboardProps> = ({
       }
     }
 
-    const finalAvatar = formData.avatar.trim() || DEFAULT_AVATAR;
+    const finalAvatar = formData.avatar.trim();
 
     if (editingTeacher) {
       // Update existing
@@ -629,11 +631,10 @@ export const AdminTeachersDashboard: React.FC<AdminTeachersDashboardProps> = ({
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex items-center gap-3">
                     <div className="relative">
-                      <img
-                        src={teacher.avatar}
-                        alt={teacher.name}
-                        referrerPolicy="no-referrer"
-                        className="w-13 h-13 rounded-2xl object-cover border-2 border-purple-200 bg-purple-50 shadow-xs"
+                      <TeacherAvatar
+                        name={teacher.name}
+                        avatar={teacher.avatar}
+                        size="lg"
                       />
                       <span
                         className={`absolute -bottom-1 -left-1 w-4 h-4 rounded-full border-2 border-white ${
@@ -930,10 +931,13 @@ export const AdminTeachersDashboard: React.FC<AdminTeachersDashboardProps> = ({
                     }
                     className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-white focus:ring-2 focus:ring-purple-500 font-bold"
                   >
-                    <option value="teacher">👨‍🏫 معلم / مهندس مادة</option>
+                    <option value="teacher">👨‍🏫 معلم / مهندس مادة (تدريس ورصد نقاط فقط)</option>
                     <option value="supervisor">⭐ مشرف تدريب ميداني / شؤون طلاب</option>
-                    <option value="admin">👑 مدير نظام كامل الصلاحيات (Admin)</option>
+                    <option value="admin">👑 مدير نظام كامل الصلاحيات (Super Admin)</option>
                   </select>
+                  <p className="text-[10px] text-slate-500 mt-1 leading-relaxed">
+                    🔒 <strong>حماية الصلاحيات:</strong> المعلمون ومشرفو التدريب لا تظهر لديهم صفحة إدارة المعلمين مطلقاً ولا يمكنهم الإطلاع على الحسابات أو إنشاء حسابات جديدة. فقط مدير النظام (Admin) هو المخول بذلك.
+                  </p>
                 </div>
 
                 <div>
@@ -1000,22 +1004,18 @@ export const AdminTeachersDashboard: React.FC<AdminTeachersDashboardProps> = ({
               <div>
                 <label className="block font-bold text-slate-700 mb-1.5 flex items-center gap-1.5">
                   <Camera className="w-4 h-4 text-purple-600" />
-                  رابط صورة المعلم / المهندس
+                  صورة المعلم / المهندس (اختياري)
                 </label>
                 <div className="flex items-center gap-3">
                   <div className="relative shrink-0">
-                    <img
-                      src={formData.avatar || DEFAULT_AVATAR}
-                      alt="معاينة الصورة"
-                      onError={(e) => {
-                        (e.currentTarget as HTMLImageElement).src = DEFAULT_AVATAR;
-                      }}
-                      className="w-14 h-14 rounded-2xl object-cover border-2 border-purple-300 bg-purple-50 shadow-xs"
-                      referrerPolicy="no-referrer"
+                    <TeacherAvatar
+                      name={formData.name || 'م'}
+                      avatar={formData.avatar}
+                      size="xl"
                     />
                   </div>
                   <div className="flex-1 space-y-2">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <button
                         type="button"
                         disabled={isCompressingTeacherPhoto}
@@ -1033,16 +1033,27 @@ export const AdminTeachersDashboard: React.FC<AdminTeachersDashboardProps> = ({
                             : 'رفع صورة من جهازك'}
                         </span>
                       </button>
-                      <span className="text-[10px] text-slate-400">أو ألصق رابط URL أدناه</span>
+                      {formData.avatar && (
+                        <button
+                          type="button"
+                          onClick={() => setFormData({ ...formData, avatar: '' })}
+                          className="px-2 py-1 text-[11px] text-rose-600 hover:bg-rose-50 border border-rose-200 rounded-lg font-bold transition-colors"
+                        >
+                          إزالة الصورة واستخدام الحرف الأول
+                        </button>
+                      )}
                     </div>
                     <input
                       type="url"
-                      placeholder="أدخل رابط صورة المعلم (URL) أو اتركها للصورة الافتراضية"
+                      placeholder="أدخل رابط صورة (URL) أو اتركه فارغاً لعرض أول حرف من الاسم"
                       value={formData.avatar}
                       onChange={(e) => setFormData({ ...formData, avatar: e.target.value })}
                       className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:ring-2 focus:ring-purple-500 font-mono text-left"
                       dir="ltr"
                     />
+                    <p className="text-[10px] text-slate-500">
+                      💡 في حال عدم رفع صورة أو إدخال رابط، سيظهر تلقائياً بادج أنيق بأول حرف من الاسم (مثلاً: د. منى ستظهر بحرف "م"، م. أبانوب بحرف "أ").
+                    </p>
                   </div>
                 </div>
               </div>

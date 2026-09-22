@@ -19,6 +19,7 @@ import {
   Layers
 } from 'lucide-react';
 import { exportAttributionLogs } from '../utils/exportUtils';
+import { TeacherAvatar } from './TeacherAvatar';
 
 interface TeacherAttributionViewProps {
   students: Student[];
@@ -252,13 +253,10 @@ export const TeacherAttributionView: React.FC<TeacherAttributionViewProps> = ({
             >
               <div>
                 <div className="flex items-center gap-3 mb-3">
-                  <img
-                    src={
-                      matchingTeacher?.avatar ||
-                      'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=crop&q=80&w=200'
-                    }
-                    alt={t.name}
-                    className="w-11 h-11 rounded-2xl object-cover border border-slate-200 shrink-0"
+                  <TeacherAvatar
+                    name={t.name}
+                    avatar={matchingTeacher?.avatar}
+                    size="md"
                   />
                   <div className="overflow-hidden">
                     <h4 className="text-xs font-black text-slate-900 truncate">{t.name}</h4>
@@ -371,13 +369,10 @@ export const TeacherAttributionView: React.FC<TeacherAttributionViewProps> = ({
                     >
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
-                          <img
-                            src={
-                              teacherObj?.avatar ||
-                              'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=crop&q=80&w=200'
-                            }
-                            alt={item.teacherName}
-                            className="w-8 h-8 rounded-xl object-cover border border-slate-300"
+                          <TeacherAvatar
+                            name={item.teacherName}
+                            avatar={teacherObj?.avatar}
+                            size="sm"
                           />
                           <div>
                             <span className="text-xs font-black text-slate-900 block">
@@ -608,13 +603,10 @@ export const TeacherAttributionView: React.FC<TeacherAttributionViewProps> = ({
                             {teacherObj?.subject || 'مشرف تقني'}
                           </span>
                         </div>
-                        <img
-                          src={
-                            teacherObj?.avatar ||
-                            'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=crop&q=80&w=200'
-                          }
-                          alt={log.teacherName}
-                          className="w-8 h-8 rounded-xl object-cover border border-slate-300 shrink-0"
+                        <TeacherAvatar
+                          name={log.teacherName}
+                          avatar={teacherObj?.avatar}
+                          size="sm"
                         />
                       </div>
                       <span className="text-[10px] text-slate-400 block mt-0.5 font-mono">
