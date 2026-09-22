@@ -24,6 +24,18 @@ import {
   loadFromIndexedDB
 } from './utils/storage';
 import {
+  subscribeToStudents,
+  subscribeToTeachers,
+  subscribeToMissions,
+  saveStudentToCloud,
+  syncAllStudentsToCloud,
+  saveTeacherToCloud,
+  syncAllTeachersToCloud,
+  deleteTeacherFromCloud,
+  saveMissionToCloud,
+  syncAllMissionsToCloud
+} from './services/firebase';
+import {
   Search,
   Filter,
   Users,
@@ -163,6 +175,52 @@ export default function App() {
     saveToIndexedDB('missions', missions).catch(console.error);
   }, [missions]);
 
+  // Real-time Central Cloud Sync (Firebase Firestore)
+  useEffect(() => {
+    let initialSyncCompleted = false;
+
+    // 1. Subscribe to Students
+    const unsubscribeStudents = subscribeToStudents(
+      (cloudStudents) => {
+        if (cloudStudents.length > 0) {
+          setStudents(cloudStudents);
+        } else if (!initialSyncCompleted && students.length > 0) {
+          // If cloud is brand new but this machine has students, sync them up to the cloud!
+          syncAllStudentsToCloud(students).catch(console.error);
+        }
+        initialSyncCompleted = true;
+      },
+      (err) => console.warn('Firestore students sync error:', err)
+    );
+
+    // 2. Subscribe to Teachers
+    const unsubscribeTeachers = subscribeToTeachers(
+      (cloudTeachers) => {
+        if (cloudTeachers.length > 0) {
+          const cleaned = cleanTeacherData(cloudTeachers);
+          setTeachers(cleaned);
+        }
+      },
+      (err) => console.warn('Firestore teachers sync error:', err)
+    );
+
+    // 3. Subscribe to Secret Missions
+    const unsubscribeMissions = subscribeToMissions(
+      (cloudMissions) => {
+        if (cloudMissions.length > 0) {
+          setMissions(cloudMissions);
+        }
+      },
+      (err) => console.warn('Firestore missions sync error:', err)
+    );
+
+    return () => {
+      unsubscribeStudents();
+      unsubscribeTeachers();
+      unsubscribeMissions();
+    };
+  }, []);
+
   // Fallback recovery check from IndexedDB on startup if localStorage was empty
   useEffect(() => {
     async function restoreFromIdbFallback() {
@@ -297,6 +355,7 @@ export default function App() {
     teacherName: string
   ) => {
     const finalTeacherName = teacherName || currentTeacher?.name || 'معلم المادة التكنولوجية';
+    let targetUpdatedStudent: Student | null = null;
 
     setStudents((prev) =>
       prev.map((s) => {
@@ -336,7 +395,7 @@ export default function App() {
           label: category.slice(0, 14)
         };
 
-        return {
+        const updatedStudent: Student = {
           ...s,
           points: newPoints,
           totalPositive: newTotalPos,
@@ -347,8 +406,15 @@ export default function App() {
           performanceHistory: [...s.performanceHistory, newHistoryPoint],
           logs: [newLog, ...s.logs]
         };
+
+        targetUpdatedStudent = updatedStudent;
+        return updatedStudent;
       })
     );
+
+    if (targetUpdatedStudent) {
+      saveStudentToCloud(targetUpdatedStudent).catch(console.error);
+    }
   };
 
   // QR Scan Success Handler
@@ -369,6 +435,7 @@ export default function App() {
   // Secret Missions Handlers
   const handleAddMission = (newMission: SecretMission) => {
     setMissions((prev) => [newMission, ...prev]);
+    saveMissionToCloud(newMission).catch(console.error);
   };
 
   const handleGradeSubmission = (
@@ -378,10 +445,12 @@ export default function App() {
     feedback: string,
     awardedPoints: number
   ) => {
+    let targetUpdatedMission: SecretMission | null = null;
+
     setMissions((prev) =>
       prev.map((m) => {
         if (m.id !== missionId) return m;
-        return {
+        const updated = {
           ...m,
           submissions: m.submissions.map((sub) => {
             if (sub.studentId !== studentId) return sub;
@@ -393,8 +462,14 @@ export default function App() {
             };
           })
         };
+        targetUpdatedMission = updated;
+        return updated;
       })
     );
+
+    if (targetUpdatedMission) {
+      saveMissionToCloud(targetUpdatedMission).catch(console.error);
+    }
 
     if (status === 'approved') {
       handleAddPoint(
@@ -407,11 +482,14 @@ export default function App() {
       );
 
       setStudents((prev) =>
-        prev.map((s) =>
-          s.id === studentId
-            ? { ...s, secretMissionsCompleted: s.secretMissionsCompleted + 1 }
-            : s
-        )
+        prev.map((s) => {
+          if (s.id === studentId) {
+            const up = { ...s, secretMissionsCompleted: s.secretMissionsCompleted + 1 };
+            saveStudentToCloud(up).catch(console.error);
+            return up;
+          }
+          return s;
+        })
       );
     }
   };
@@ -425,6 +503,8 @@ export default function App() {
     const student = students.find((s) => s.id === studentId);
     const mission = missions.find((m) => m.id === missionId);
     if (!student || !mission) return;
+
+    let targetUpdatedMission: SecretMission | null = null;
 
     setMissions((prev) =>
       prev.map((m) => {
@@ -441,14 +521,20 @@ export default function App() {
           awardedPoints: mission.pointsReward
         };
 
-        return {
+        const updated = {
           ...m,
           submissions: exists
             ? m.submissions.map((sub) => (sub.studentId === studentId ? newSub : sub))
             : [newSub, ...m.submissions]
         };
+        targetUpdatedMission = updated;
+        return updated;
       })
     );
+
+    if (targetUpdatedMission) {
+      saveMissionToCloud(targetUpdatedMission).catch(console.error);
+    }
 
     // Directly award points to student
     handleAddPoint(
@@ -461,17 +547,21 @@ export default function App() {
     );
 
     setStudents((prev) =>
-      prev.map((s) =>
-        s.id === studentId
-          ? { ...s, secretMissionsCompleted: s.secretMissionsCompleted + 1 }
-          : s
-      )
+      prev.map((s) => {
+        if (s.id === studentId) {
+          const up = { ...s, secretMissionsCompleted: s.secretMissionsCompleted + 1 };
+          saveStudentToCloud(up).catch(console.error);
+          return up;
+        }
+        return s;
+      })
     );
   };
 
   // Teacher Management Handlers (Admin)
   const handleAddTeacher = (newTeacher: Teacher) => {
     setTeachers((prev) => [newTeacher, ...prev]);
+    saveTeacherToCloud(newTeacher).catch(console.error);
   };
 
   const handleUpdateTeacher = (updatedTeacher: Teacher) => {
@@ -481,6 +571,7 @@ export default function App() {
     setTeachers((prev) =>
       prev.map((t) => (t.id === updatedTeacher.id ? updatedTeacher : t))
     );
+    saveTeacherToCloud(updatedTeacher).catch(console.error);
 
     if (currentTeacher?.id === updatedTeacher.id) {
       setCurrentTeacher(updatedTeacher);
@@ -489,28 +580,37 @@ export default function App() {
     // Dynamic global propagation: update attribution logs and missions
     if (oldName && oldName !== updatedTeacher.name) {
       setStudents((prev) =>
-        prev.map((student) => ({
-          ...student,
-          logs: student.logs.map((log) =>
-            log.teacherName === oldName
-              ? { ...log, teacherName: updatedTeacher.name }
-              : log
-          )
-        }))
+        prev.map((student) => {
+          const up = {
+            ...student,
+            logs: student.logs.map((log) =>
+              log.teacherName === oldName
+                ? { ...log, teacherName: updatedTeacher.name }
+                : log
+            )
+          };
+          saveStudentToCloud(up).catch(console.error);
+          return up;
+        })
       );
 
       setMissions((prev) =>
-        prev.map((mission) => ({
-          ...mission,
-          createdBy:
-            mission.createdBy === oldName ? updatedTeacher.name : mission.createdBy
-        }))
+        prev.map((mission) => {
+          const up = {
+            ...mission,
+            createdBy:
+              mission.createdBy === oldName ? updatedTeacher.name : mission.createdBy
+          };
+          saveMissionToCloud(up).catch(console.error);
+          return up;
+        })
       );
     }
   };
 
   const handleDeleteTeacher = (teacherId: string) => {
     setTeachers((prev) => prev.filter((t) => t.id !== teacherId));
+    deleteTeacherFromCloud(teacherId).catch(console.error);
   };
 
   const handleImpersonateTeacher = (teacher: Teacher) => {
@@ -525,10 +625,12 @@ export default function App() {
   }) => {
     if (data.students && Array.isArray(data.students)) {
       setStudents(data.students);
+      syncAllStudentsToCloud(data.students).catch(console.error);
     }
     if (data.teachers && Array.isArray(data.teachers)) {
       const cleaned = cleanTeacherData(data.teachers);
       setTeachers(cleaned);
+      syncAllTeachersToCloud(cleaned).catch(console.error);
       if (currentTeacher) {
         const matching = cleaned.find((t) => t.id === currentTeacher.id);
         if (matching) setCurrentTeacher(matching);
@@ -536,11 +638,13 @@ export default function App() {
     }
     if (data.missions && Array.isArray(data.missions)) {
       setMissions(data.missions);
+      syncAllMissionsToCloud(data.missions).catch(console.error);
     }
   };
 
   const handleSeedSampleStudents = () => {
     setStudents(INITIAL_STUDENTS);
+    syncAllStudentsToCloud(INITIAL_STUDENTS).catch(console.error);
   };
 
   // Filtered Students in Teacher Dashboard
@@ -595,7 +699,7 @@ export default function App() {
 
   // 3. DEFAULT VIEW: TEACHER DASHBOARD
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 pb-16" dir="rtl">
+    <div className="min-h-screen bg-slate-50 text-slate-900 pb-16 w-full overflow-x-hidden" dir="rtl">
       {/* Top Navbar with QR Scanner & Teacher Profile */}
       <Navbar
         activeView={activeView}
@@ -610,7 +714,7 @@ export default function App() {
         }}
       />
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 sm:pt-8">
+      <main className="w-full max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 pt-5 sm:pt-6">
         {/* VIEW 1: STUDENTS DASHBOARD */}
         {activeView === 'students' && (
           <div className="space-y-6">
@@ -935,6 +1039,7 @@ export default function App() {
         onAddStudent={(newStudent) => {
           setStudents((prev) => [newStudent, ...prev]);
           setProfileStudent(newStudent);
+          saveStudentToCloud(newStudent).catch(console.error);
         }}
       />
     </div>

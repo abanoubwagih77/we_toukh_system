@@ -455,15 +455,15 @@ export const AdminTeachersDashboard: React.FC<AdminTeachersDashboardProps> = ({
           <div>
             <div className="flex flex-wrap items-center gap-2">
               <h4 className="text-xs sm:text-sm font-black text-slate-900">
-                إدارة قاعدة البيانات والحفظ الدائم
+                إدارة قاعدة البيانات والحفظ السحابي
               </h4>
               <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-50 text-emerald-700 border border-emerald-200">
                 <Check className="w-3 h-3 text-emerald-600" />
-                <span>حفظ لحظي نشط (LocalStorage + IndexedDB)</span>
+                <span>سحابي متزامن نشط (Google Cloud Firestore)</span>
               </span>
             </div>
             <p className="text-[11px] text-slate-500 mt-0.5">
-              بيانات المعلمين والطلاب والنقاط والمهام ثابتة وتُحفظ محلياً وبقاعدة البيانات دون أن تُمحى مع الريفريش.
+              بيانات المعلمين والطلاب والنقاط والمهام مربوطة بسيرفرات سحابية حقيقية وتتزامن تلقائياً بين كل الأجهزة وأي شخص يفتح الموقع من أي مكان.
             </p>
           </div>
         </div>

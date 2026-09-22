@@ -1,0 +1,19 @@
+{
+  "entities": {
+    "students": {
+      "title": "Students",
+      "description": "School students with points, grades, classroom, and attribution logs",
+      "type": "collection"
+    },
+    "teachers": {
+      "title": "Teachers",
+      "description": "School teachers and administrators with credentials and roles",
+      "type": "collection"
+    },
+    "missions": {
+      "title": "Secret Missions",
+      "description": "Competitions and challenges created by teachers for students",
+      "type": "collection"
+    }
+  }
+}
