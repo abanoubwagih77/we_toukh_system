@@ -59,7 +59,7 @@ export interface Teacher {
   username: string;
   password: string;
   subject: string;
-  majorDepartment: string;
+  majorDepartment?: string;
   avatar: string;
   role: 'teacher' | 'supervisor' | 'admin';
   phone?: string;

@@ -18,6 +18,12 @@ import { TeacherAttributionView } from './components/TeacherAttributionView';
 import { AdminTeachersDashboard } from './components/AdminTeachersDashboard';
 import { CertificateModal } from './components/CertificateModal';
 import {
+  safeLocalStorageGet,
+  safeLocalStorageSet,
+  saveToIndexedDB,
+  loadFromIndexedDB
+} from './utils/storage';
+import {
   Search,
   Filter,
   Users,
@@ -27,37 +33,50 @@ import {
   Crown,
   TrendingUp,
   Cpu,
-  GraduationCap
+  GraduationCap,
+  UserPlus
 } from 'lucide-react';
 
-const STORAGE_KEY_STUDENTS = 'we_school_students_v1';
-const STORAGE_KEY_MISSIONS = 'we_school_missions_v1';
+const STORAGE_KEY_STUDENTS = 'we_school_students_v2';
+const STORAGE_KEY_MISSIONS = 'we_school_missions_v2';
 const STORAGE_KEY_AUTH = 'we_school_auth_v1';
-const STORAGE_KEY_TEACHERS = 'we_school_teachers_v2';
+const STORAGE_KEY_TEACHERS = 'we_school_teachers_v3';
+
+// Helper to ensure any old references to "بهاء وجيه" or outdated admin state migrate dynamically
+const cleanTeacherData = (list: Teacher[]): Teacher[] => {
+  return list.map((t) => {
+    if (t.id === 't-admin' || t.name.includes('بهاء وجيه') || t.name.includes('بهاء')) {
+      return {
+        ...t,
+        id: 't-admin',
+        name: 'م. أبانوب وجيه (مدير المنظومة)',
+        username: t.username || 'admin',
+        role: 'admin',
+        title: 'مدير المنظومة والأدمن العام',
+        subject: 'هندسة الشبكات والاتصالات والأدمن العام',
+        phone: t.phone || '01220000001',
+        email: 'admin@we.school.edu.eg',
+        status: 'active'
+      };
+    }
+    return t;
+  });
+};
 
 export default function App() {
   const [students, setStudents] = useState<Student[]>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY_STUDENTS);
-      if (saved) return JSON.parse(saved);
-    } catch {}
-    return INITIAL_STUDENTS;
+    const saved = safeLocalStorageGet<Student[]>(STORAGE_KEY_STUDENTS, INITIAL_STUDENTS);
+    return saved && saved.length > 0 ? saved : INITIAL_STUDENTS;
   });
 
   const [teachers, setTeachers] = useState<Teacher[]>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY_TEACHERS);
-      if (saved) return JSON.parse(saved);
-    } catch {}
-    return INITIAL_TEACHERS;
+    const saved = safeLocalStorageGet<Teacher[]>(STORAGE_KEY_TEACHERS, INITIAL_TEACHERS);
+    return cleanTeacherData(saved && saved.length > 0 ? saved : INITIAL_TEACHERS);
   });
 
   const [missions, setMissions] = useState<SecretMission[]>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY_MISSIONS);
-      if (saved) return JSON.parse(saved);
-    } catch {}
-    return INITIAL_MISSIONS;
+    const saved = safeLocalStorageGet<SecretMission[]>(STORAGE_KEY_MISSIONS, INITIAL_MISSIONS);
+    return saved && saved.length > 0 ? saved : INITIAL_MISSIONS;
   });
 
   // Auth State: 'portal' | 'teacher' | 'student'
@@ -68,13 +87,12 @@ export default function App() {
       if (saved) {
         const parsed = JSON.parse(saved);
         if (parsed.role && parsed.role !== 'portal') {
-          // If valid session with teacher or studentId exists
           if (parsed.role === 'teacher' && parsed.teacher) return 'teacher';
           if (parsed.role === 'student' && parsed.studentId) return 'student';
         }
       }
     } catch {}
-    return 'portal'; // Always prompt with login first!
+    return 'portal';
   });
 
   const [currentTeacher, setCurrentTeacher] = useState<Teacher | null>(() => {
@@ -82,7 +100,18 @@ export default function App() {
       const saved = localStorage.getItem(STORAGE_KEY_AUTH);
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (parsed.role === 'teacher' && parsed.teacher) return parsed.teacher;
+        if (parsed.role === 'teacher' && parsed.teacher) {
+          if (parsed.teacher.name?.includes('بهاء') || parsed.teacher.id === 't-admin') {
+            return {
+              ...parsed.teacher,
+              id: 't-admin',
+              name: 'م. أبانوب وجيه (مدير المنظومة)',
+              role: 'admin',
+              title: 'مدير المنظومة والأدمن العام'
+            };
+          }
+          return parsed.teacher;
+        }
       }
     } catch {}
     return null;
@@ -118,30 +147,54 @@ export default function App() {
   const [isScannerOpen, setIsScannerOpen] = useState<boolean>(false);
   const [isAddStudentOpen, setIsAddStudentOpen] = useState<boolean>(false);
 
-  // Sync to localStorage
+  // Sync to localStorage + IndexedDB (Dual-Layer Resilience)
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY_STUDENTS, JSON.stringify(students));
-    } catch (e) {
-      console.error(e);
-    }
+    safeLocalStorageSet(STORAGE_KEY_STUDENTS, students);
+    saveToIndexedDB('students', students).catch(console.error);
   }, [students]);
 
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY_TEACHERS, JSON.stringify(teachers));
-    } catch (e) {
-      console.error(e);
-    }
+    safeLocalStorageSet(STORAGE_KEY_TEACHERS, teachers);
+    saveToIndexedDB('teachers', teachers).catch(console.error);
   }, [teachers]);
 
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY_MISSIONS, JSON.stringify(missions));
-    } catch (e) {
-      console.error(e);
-    }
+    safeLocalStorageSet(STORAGE_KEY_MISSIONS, missions);
+    saveToIndexedDB('missions', missions).catch(console.error);
   }, [missions]);
+
+  // Fallback recovery check from IndexedDB on startup if localStorage was empty
+  useEffect(() => {
+    async function restoreFromIdbFallback() {
+      try {
+        const idbStudents = await loadFromIndexedDB<Student[]>('students');
+        if (idbStudents && idbStudents.length > 0 && students.length === 0) {
+          setStudents(idbStudents);
+        }
+        const idbTeachers = await loadFromIndexedDB<Teacher[]>('teachers');
+        if (idbTeachers && idbTeachers.length > 0 && teachers.length === 0) {
+          setTeachers(cleanTeacherData(idbTeachers));
+        }
+        const idbMissions = await loadFromIndexedDB<SecretMission[]>('missions');
+        if (idbMissions && idbMissions.length > 0 && missions.length === 0) {
+          setMissions(idbMissions);
+        }
+      } catch (err) {
+        console.error('IDB restore check:', err);
+      }
+    }
+    restoreFromIdbFallback();
+  }, []);
+
+  // Ensure current active teacher profile stays in sync with teachers list
+  useEffect(() => {
+    if (currentTeacher) {
+      const liveTeacher = teachers.find((t) => t.id === currentTeacher.id);
+      if (liveTeacher && liveTeacher.name !== currentTeacher.name) {
+        setCurrentTeacher(liveTeacher);
+      }
+    }
+  }, [teachers, currentTeacher]);
 
   useEffect(() => {
     try {
@@ -422,11 +475,37 @@ export default function App() {
   };
 
   const handleUpdateTeacher = (updatedTeacher: Teacher) => {
+    const oldTeacher = teachers.find((t) => t.id === updatedTeacher.id);
+    const oldName = oldTeacher?.name;
+
     setTeachers((prev) =>
       prev.map((t) => (t.id === updatedTeacher.id ? updatedTeacher : t))
     );
+
     if (currentTeacher?.id === updatedTeacher.id) {
       setCurrentTeacher(updatedTeacher);
+    }
+
+    // Dynamic global propagation: update attribution logs and missions
+    if (oldName && oldName !== updatedTeacher.name) {
+      setStudents((prev) =>
+        prev.map((student) => ({
+          ...student,
+          logs: student.logs.map((log) =>
+            log.teacherName === oldName
+              ? { ...log, teacherName: updatedTeacher.name }
+              : log
+          )
+        }))
+      );
+
+      setMissions((prev) =>
+        prev.map((mission) => ({
+          ...mission,
+          createdBy:
+            mission.createdBy === oldName ? updatedTeacher.name : mission.createdBy
+        }))
+      );
     }
   };
 
@@ -437,6 +516,31 @@ export default function App() {
   const handleImpersonateTeacher = (teacher: Teacher) => {
     setCurrentTeacher(teacher);
     setActiveView('students');
+  };
+
+  const handleRestoreFullDatabase = (data: {
+    students: Student[];
+    teachers: Teacher[];
+    missions: SecretMission[];
+  }) => {
+    if (data.students && Array.isArray(data.students)) {
+      setStudents(data.students);
+    }
+    if (data.teachers && Array.isArray(data.teachers)) {
+      const cleaned = cleanTeacherData(data.teachers);
+      setTeachers(cleaned);
+      if (currentTeacher) {
+        const matching = cleaned.find((t) => t.id === currentTeacher.id);
+        if (matching) setCurrentTeacher(matching);
+      }
+    }
+    if (data.missions && Array.isArray(data.missions)) {
+      setMissions(data.missions);
+    }
+  };
+
+  const handleSeedSampleStudents = () => {
+    setStudents(INITIAL_STUDENTS);
   };
 
   // Filtered Students in Teacher Dashboard
@@ -681,10 +785,29 @@ export default function App() {
             </div>
 
             {/* Students Grid */}
-            {filteredStudents.length === 0 ? (
+            {students.length === 0 ? (
+              <div className="bg-white rounded-3xl p-12 text-center border-2 border-dashed border-purple-200 shadow-xs">
+                <div className="w-16 h-16 bg-purple-50 text-purple-700 rounded-3xl flex items-center justify-center mx-auto mb-4 border border-purple-100">
+                  <UserPlus className="w-8 h-8" />
+                </div>
+                <h3 className="text-lg font-black text-slate-900">قائمة الطلاب فارغة تماماً</h3>
+                <p className="text-xs text-slate-500 max-w-md mx-auto mt-1 leading-relaxed">
+                  تمت إزالة كافة البيانات الوهمية بنجاح! يمكنك الآن البدء بإضافة طلابك الحقيقيين يدوياً، اختيار فصولهم (A1-A6، B1-B6، C1-C6)، وتخصصاتهم ورفع صورهم من جهازك.
+                </p>
+                <div className="mt-5">
+                  <button
+                    onClick={() => setIsAddStudentOpen(true)}
+                    className="inline-flex items-center gap-2 px-6 py-3 bg-[#4A154B] hover:bg-[#3B0764] text-white text-xs font-black rounded-2xl shadow-md transition-all hover:scale-105 active:scale-95"
+                  >
+                    <UserPlus className="w-4 h-4" />
+                    <span>إضافة أول طالب وتوليد الـ ID الآن</span>
+                  </button>
+                </div>
+              </div>
+            ) : filteredStudents.length === 0 ? (
               <div className="bg-white rounded-3xl p-12 text-center border border-dashed border-slate-300">
                 <Users className="w-12 h-12 text-slate-300 mx-auto mb-3" />
-                <h3 className="text-base font-extrabold text-slate-800">لا يوجد طلاب يطابقون البحث</h3>
+                <h3 className="text-base font-extrabold text-slate-800">لا يوجد طلاب يطابقون خيارات البحث</h3>
                 <p className="text-xs text-slate-500 mt-1">
                   جرب تغيير كلمات البحث أو إعادة ضبط خيارات التصفية
                 </p>
@@ -719,7 +842,10 @@ export default function App() {
         {activeView === 'attribution' && (
           <TeacherAttributionView
             students={students}
+            teachers={teachers}
             onSelectStudent={(s) => setProfileStudent(s)}
+            onOpenStudentProfile={(s) => setProfileStudent(s)}
+            onOpenCertificate={(s) => setCertificateStudent(s)}
           />
         )}
 
@@ -742,11 +868,14 @@ export default function App() {
           <AdminTeachersDashboard
             teachers={teachers}
             students={students}
+            missions={missions}
             currentTeacher={currentTeacher}
             onAddTeacher={handleAddTeacher}
             onUpdateTeacher={handleUpdateTeacher}
             onDeleteTeacher={handleDeleteTeacher}
             onImpersonateTeacher={handleImpersonateTeacher}
+            onRestoreFullDatabase={handleRestoreFullDatabase}
+            onSeedSampleStudents={handleSeedSampleStudents}
           />
         )}
       </main>

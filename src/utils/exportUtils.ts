@@ -122,3 +122,33 @@ export function exportAttributionLogs(students: Student[]): void {
   const timestamp = new Date().toISOString().split('T')[0];
   exportToCSV(`سجل_نقاط_المعلمين_والمهندسين_WE_${timestamp}.csv`, [headers, ...allLogs]);
 }
+
+/**
+ * Exports complete application database as a JSON file for backup and migration
+ */
+export function exportSystemDatabaseJSON(payload: {
+  students: Student[];
+  teachers: any[];
+  missions: any[];
+}): void {
+  const dataStr = JSON.stringify(
+    {
+      exportedAt: new Date().toISOString(),
+      school: 'WE School of Applied Technology',
+      ...payload
+    },
+    null,
+    2
+  );
+  const blob = new Blob([dataStr], { type: 'application/json;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.setAttribute('href', url);
+  const timestamp = new Date().toISOString().split('T')[0];
+  link.setAttribute('download', `نسخة_احتياطية_منظومة_WE_${timestamp}.json`);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+

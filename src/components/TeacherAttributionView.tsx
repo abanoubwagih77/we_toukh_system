@@ -1,6 +1,5 @@
 import React, { useState, useMemo } from 'react';
 import { Student, Teacher, PointLog } from '../types';
-import { INITIAL_TEACHERS } from '../data/mockData';
 import {
   UserCheck,
   Search,
@@ -23,19 +22,31 @@ import { exportAttributionLogs } from '../utils/exportUtils';
 
 interface TeacherAttributionViewProps {
   students: Student[];
-  onOpenStudentProfile: (student: Student) => void;
-  onOpenCertificate: (student: Student, teacherName: string) => void;
+  teachers: Teacher[];
+  onOpenStudentProfile?: (student: Student) => void;
+  onSelectStudent?: (student: Student) => void;
+  onOpenCertificate?: (student: Student, teacherName: string) => void;
 }
 
 export const TeacherAttributionView: React.FC<TeacherAttributionViewProps> = ({
   students,
+  teachers = [],
   onOpenStudentProfile,
+  onSelectStudent,
   onOpenCertificate
 }) => {
   const [selectedTeacher, setSelectedTeacher] = useState<string>('all');
   const [selectedStudentId, setSelectedStudentId] = useState<string>('all');
   const [typeFilter, setTypeFilter] = useState<'all' | 'positive' | 'negative'>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
+
+  const handleViewProfile = (student: Student) => {
+    if (onOpenStudentProfile) {
+      onOpenStudentProfile(student);
+    } else if (onSelectStudent) {
+      onSelectStudent(student);
+    }
+  };
 
   // Collect all logs flattened across all students with reference to their student
   const allLogsWithStudent = useMemo(() => {
@@ -59,12 +70,13 @@ export const TeacherAttributionView: React.FC<TeacherAttributionViewProps> = ({
     );
   }, [students]);
 
-  // Aggregate statistics per teacher
+  // Aggregate statistics per teacher (dynamic from teachers prop)
   const teacherStats = useMemo(() => {
     const map = new Map<
       string,
       {
         name: string;
+        teacherObj?: Teacher;
         positivePoints: number;
         negativePoints: number;
         positiveCount: number;
@@ -74,9 +86,10 @@ export const TeacherAttributionView: React.FC<TeacherAttributionViewProps> = ({
       }
     >();
 
-    INITIAL_TEACHERS.forEach((t) => {
+    teachers.forEach((t) => {
       map.set(t.name, {
         name: t.name,
+        teacherObj: t,
         positivePoints: 0,
         negativePoints: 0,
         positiveCount: 0,
@@ -89,8 +102,10 @@ export const TeacherAttributionView: React.FC<TeacherAttributionViewProps> = ({
     allLogsWithStudent.forEach(({ log, student }) => {
       const teacherName = log.teacherName || 'معلم المادة التكنولوجية';
       if (!map.has(teacherName)) {
+        const found = teachers.find((t) => t.name === teacherName);
         map.set(teacherName, {
           name: teacherName,
+          teacherObj: found,
           positivePoints: 0,
           negativePoints: 0,
           positiveCount: 0,
@@ -112,7 +127,7 @@ export const TeacherAttributionView: React.FC<TeacherAttributionViewProps> = ({
     });
 
     return Array.from(map.values());
-  }, [allLogsWithStudent]);
+  }, [allLogsWithStudent, teachers]);
 
   // Filtered logs
   const filteredLogs = useMemo(() => {
@@ -222,7 +237,7 @@ export const TeacherAttributionView: React.FC<TeacherAttributionViewProps> = ({
       {/* Teacher / Engineer Cards Overview */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3.5">
         {teacherStats.map((t) => {
-          const matchingTeacher = INITIAL_TEACHERS.find((it) => it.name === t.name);
+          const matchingTeacher = t.teacherObj || teachers.find((it) => it.name === t.name);
           const isSelected = selectedTeacher === t.name;
 
           return (
@@ -306,27 +321,28 @@ export const TeacherAttributionView: React.FC<TeacherAttributionViewProps> = ({
 
             <div className="flex items-center gap-2">
               <button
-                onClick={() => onOpenStudentProfile(activeStudent)}
-                className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-black rounded-xl transition-colors"
+                onClick={() => handleViewProfile(activeStudent)}
+                className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-black rounded-xl transition-colors cursor-pointer"
               >
                 <Eye className="w-3.5 h-3.5 text-purple-700" />
                 <span>عرض الملف الشامل</span>
               </button>
               <button
                 onClick={() =>
+                  onOpenCertificate &&
                   onOpenCertificate(
                     activeStudent,
-                    activeStudentTeacherBreakdown[0]?.teacherName || 'م. أحمد ممدوح'
+                    activeStudentTeacherBreakdown[0]?.teacherName || (teachers[0]?.name ?? 'مدير المنظومة')
                   )
                 }
-                className="flex items-center gap-1.5 px-3.5 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 text-xs font-black rounded-xl shadow-xs transition-colors"
+                className="flex items-center gap-1.5 px-3.5 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 text-xs font-black rounded-xl shadow-xs transition-colors cursor-pointer"
               >
                 <Award className="w-3.5 h-3.5" />
                 <span>إصدار شهادة تقدير</span>
               </button>
               <button
                 onClick={() => setSelectedStudentId('all')}
-                className="px-3 py-2 text-xs text-slate-500 hover:text-slate-800 font-bold"
+                className="px-3 py-2 text-xs text-slate-500 hover:text-slate-800 font-bold cursor-pointer"
               >
                 إلغاء التحديد
               </button>
@@ -345,7 +361,7 @@ export const TeacherAttributionView: React.FC<TeacherAttributionViewProps> = ({
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                 {activeStudentTeacherBreakdown.map((item) => {
-                  const teacherObj = INITIAL_TEACHERS.find((t) => t.name === item.teacherName);
+                  const teacherObj = teachers.find((t) => t.name === item.teacherName);
                   const netScore = item.positive - item.negative;
 
                   return (
@@ -445,7 +461,7 @@ export const TeacherAttributionView: React.FC<TeacherAttributionViewProps> = ({
               className="w-full px-3 py-2.5 text-xs border border-slate-200 rounded-2xl focus:outline-hidden focus:ring-2 focus:ring-purple-500 bg-white"
             >
               <option value="all">كافة السادة المعلمين والمهندسين</option>
-              {INITIAL_TEACHERS.map((t) => (
+              {teachers.map((t) => (
                 <option key={t.id} value={t.name}>
                   {t.name} ({t.subject})
                 </option>
@@ -485,7 +501,7 @@ export const TeacherAttributionView: React.FC<TeacherAttributionViewProps> = ({
                 setTypeFilter('all');
                 setSearchQuery('');
               }}
-              className="text-purple-700 hover:text-purple-900 font-bold"
+              className="text-purple-700 hover:text-purple-900 font-bold cursor-pointer"
             >
               إعادة ضبط الفلاتر
             </button>
@@ -514,7 +530,7 @@ export const TeacherAttributionView: React.FC<TeacherAttributionViewProps> = ({
         ) : (
           <div className="divide-y divide-slate-100">
             {filteredLogs.map(({ log, student }, index) => {
-              const teacherObj = INITIAL_TEACHERS.find(
+              const teacherObj = teachers.find(
                 (t) => t.name === (log.teacherName || '')
               );
               const isPositive = log.type === 'positive';
@@ -536,15 +552,15 @@ export const TeacherAttributionView: React.FC<TeacherAttributionViewProps> = ({
                     <img
                       src={student.avatar}
                       alt={student.name}
-                      onClick={() => onOpenStudentProfile(student)}
+                      onClick={() => handleViewProfile(student)}
                       className="w-12 h-12 rounded-2xl object-cover border border-slate-200 cursor-pointer shrink-0 hover:opacity-90"
                     />
 
                     <div className="space-y-1">
                       <div className="flex flex-wrap items-center gap-2">
                         <button
-                          onClick={() => onOpenStudentProfile(student)}
-                          className="font-black text-sm text-slate-900 hover:text-purple-700 text-right transition-colors"
+                          onClick={() => handleViewProfile(student)}
+                          className="font-black text-sm text-slate-900 hover:text-purple-700 text-right transition-colors cursor-pointer"
                         >
                           {student.name}
                         </button>

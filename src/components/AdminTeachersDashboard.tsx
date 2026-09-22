@@ -24,44 +24,55 @@ import {
   KeyRound,
   X,
   Sparkles,
-  Cpu
+  Cpu,
+  Camera,
+  Upload,
+  Download,
+  Database,
+  Check,
+  FileUp,
+  Loader2,
+  HardDrive
 } from 'lucide-react';
+import { compressImageFile } from '../utils/imageUtils';
+import { exportSystemDatabaseJSON } from '../utils/exportUtils';
 
 interface AdminTeachersDashboardProps {
   teachers: Teacher[];
   students: Student[];
   currentTeacher: Teacher | null;
+  missions?: any[];
   onAddTeacher: (teacher: Teacher) => void;
   onUpdateTeacher: (teacher: Teacher) => void;
   onDeleteTeacher: (teacherId: string) => void;
   onImpersonateTeacher?: (teacher: Teacher) => void;
+  onRestoreFullDatabase?: (data: { students: Student[]; teachers: Teacher[]; missions: any[] }) => void;
+  onSeedSampleStudents?: () => void;
 }
 
-const PRESET_AVATARS = [
-  'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=crop&q=80&w=200',
-  'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&q=80&w=200',
-  'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&q=80&w=200',
-  'https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?auto=format&fit=crop&q=80&w=200',
-  'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&q=80&w=200',
-  'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=200',
-  'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&q=80&w=200',
-  'https://images.unsplash.com/photo-1580489944761-15a19d654956?auto=format&fit=crop&q=80&w=200'
-];
+const DEFAULT_AVATAR = 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=crop&q=80&w=200';
 
 export const AdminTeachersDashboard: React.FC<AdminTeachersDashboardProps> = ({
   teachers,
   students,
   currentTeacher,
+  missions = [],
   onAddTeacher,
   onUpdateTeacher,
   onDeleteTeacher,
-  onImpersonateTeacher
+  onImpersonateTeacher,
+  onRestoreFullDatabase,
+  onSeedSampleStudents
 }) => {
   // Search and filter states
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [roleFilter, setRoleFilter] = useState<string>('all');
-  const [departmentFilter, setDepartmentFilter] = useState<string>('all');
+  const [subjectFilter, setSubjectFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [isCompressingTeacherPhoto, setIsCompressingTeacherPhoto] = useState<boolean>(false);
+  const [backupSuccessMessage, setBackupSuccessMessage] = useState<string>('');
+  const importFileRef = React.useRef<HTMLInputElement | null>(null);
+  const teacherPhotoRef = React.useRef<HTMLInputElement | null>(null);
 
   // Modals
   const [isAddModalOpen, setIsAddModalOpen] = useState<boolean>(false);
@@ -77,11 +88,10 @@ export const AdminTeachersDashboard: React.FC<AdminTeachersDashboardProps> = ({
     password: '',
     role: 'teacher' as 'teacher' | 'supervisor' | 'admin',
     subject: '',
-    majorDepartment: 'تطوير البرمجيات وحلول الويب',
     phone: '',
     email: '',
     status: 'active' as 'active' | 'suspended',
-    avatar: PRESET_AVATARS[0]
+    avatar: DEFAULT_AVATAR
   });
 
   const [formError, setFormError] = useState<string>('');
@@ -117,16 +127,16 @@ export const AdminTeachersDashboard: React.FC<AdminTeachersDashboardProps> = ({
         t.name.toLowerCase().includes(q) ||
         t.username.toLowerCase().includes(q) ||
         t.subject.toLowerCase().includes(q) ||
-        t.majorDepartment.toLowerCase().includes(q) ||
+        (t.majorDepartment && t.majorDepartment.toLowerCase().includes(q)) ||
         (t.phone && t.phone.includes(q));
 
       const matchRole = roleFilter === 'all' || t.role === roleFilter;
-      const matchDept = departmentFilter === 'all' || t.majorDepartment === departmentFilter;
+      const matchSubject = subjectFilter === 'all' || t.subject === subjectFilter;
       const matchStatus = statusFilter === 'all' || (t.status || 'active') === statusFilter;
 
-      return matchSearch && matchRole && matchDept && matchStatus;
+      return matchSearch && matchRole && matchSubject && matchStatus;
     });
-  }, [teachers, searchQuery, roleFilter, departmentFilter, statusFilter]);
+  }, [teachers, searchQuery, roleFilter, subjectFilter, statusFilter]);
 
   // Open Edit Modal with teacher data
   const handleStartEdit = (teacher: Teacher) => {
@@ -138,11 +148,10 @@ export const AdminTeachersDashboard: React.FC<AdminTeachersDashboardProps> = ({
       password: teacher.password,
       role: teacher.role,
       subject: teacher.subject,
-      majorDepartment: teacher.majorDepartment,
       phone: teacher.phone || '',
       email: teacher.email || '',
       status: teacher.status || 'active',
-      avatar: teacher.avatar || PRESET_AVATARS[0]
+      avatar: teacher.avatar || DEFAULT_AVATAR
     });
     setFormError('');
   };
@@ -157,11 +166,10 @@ export const AdminTeachersDashboard: React.FC<AdminTeachersDashboardProps> = ({
       password: '123',
       role: 'teacher',
       subject: '',
-      majorDepartment: 'تطوير البرمجيات وحلول الويب',
       phone: '',
       email: '',
       status: 'active',
-      avatar: PRESET_AVATARS[Math.floor(Math.random() * PRESET_AVATARS.length)]
+      avatar: DEFAULT_AVATAR
     });
     setFormError('');
     setIsAddModalOpen(true);
@@ -208,9 +216,20 @@ export const AdminTeachersDashboard: React.FC<AdminTeachersDashboardProps> = ({
       !formattedName.startsWith('د.') &&
       !formattedName.startsWith('أ.')
     ) {
-      const prefix = formData.title === 'مهندس' ? 'م.' : formData.title === 'دكتور' ? 'د.' : 'أ.';
-      formattedName = `${prefix} ${formattedName}`;
+      const prefix =
+        formData.title === 'مهندس' || formData.title === 'مهندسة'
+          ? 'م.'
+          : formData.title === 'دكتور' || formData.title === 'دكتورة'
+          ? 'د.'
+          : formData.title === 'أستاذ' || formData.title === 'أستاذة'
+          ? 'أ.'
+          : '';
+      if (prefix) {
+        formattedName = `${prefix} ${formattedName}`;
+      }
     }
+
+    const finalAvatar = formData.avatar.trim() || DEFAULT_AVATAR;
 
     if (editingTeacher) {
       // Update existing
@@ -221,11 +240,11 @@ export const AdminTeachersDashboard: React.FC<AdminTeachersDashboardProps> = ({
         password: formData.password.trim(),
         role: formData.role,
         subject: formData.subject.trim(),
-        majorDepartment: formData.majorDepartment,
+        majorDepartment: editingTeacher.majorDepartment,
         phone: formData.phone.trim(),
         email: formData.email.trim(),
         status: formData.status,
-        avatar: formData.avatar,
+        avatar: finalAvatar,
         title: formData.title
       };
       onUpdateTeacher(updated);
@@ -239,11 +258,10 @@ export const AdminTeachersDashboard: React.FC<AdminTeachersDashboardProps> = ({
         password: formData.password.trim(),
         role: formData.role,
         subject: formData.subject.trim(),
-        majorDepartment: formData.majorDepartment,
         phone: formData.phone.trim(),
         email: formData.email.trim(),
         status: formData.status,
-        avatar: formData.avatar,
+        avatar: finalAvatar,
         title: formData.title,
         createdAt: new Date().toISOString().split('T')[0]
       };
@@ -274,6 +292,60 @@ export const AdminTeachersDashboard: React.FC<AdminTeachersDashboardProps> = ({
     if (deletingTeacher) {
       onDeleteTeacher(deletingTeacher.id);
       setDeletingTeacher(null);
+    }
+  };
+
+  // Database Backup & Restore Handlers
+  const handleExportBackup = () => {
+    exportSystemDatabaseJSON({
+      students,
+      teachers,
+      missions
+    });
+    setBackupSuccessMessage('تم تصدير ملف النسخة الاحتياطية بنجاح بصيغة JSON');
+    setTimeout(() => setBackupSuccessMessage(''), 4000);
+  };
+
+  const handleImportFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const content = event.target?.result as string;
+        const parsed = JSON.parse(content);
+        if (parsed.students && Array.isArray(parsed.students) && onRestoreFullDatabase) {
+          onRestoreFullDatabase({
+            students: parsed.students,
+            teachers: parsed.teachers || teachers,
+            missions: parsed.missions || missions
+          });
+          setBackupSuccessMessage('تم استيراد واستعادة قاعدة البيانات بنجاح في المنظومة!');
+          setTimeout(() => setBackupSuccessMessage(''), 5000);
+        } else {
+          alert('الملف المحدد لا يحتوي على بنية بيانات مدرسة WE صالحة');
+        }
+      } catch {
+        alert('حدث خطأ أثناء قراءة ملف النسخة الاحتياطية');
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
+
+  const handleTeacherPhotoFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      setIsCompressingTeacherPhoto(true);
+      const compressed = await compressImageFile(file, 260, 260, 0.85);
+      setFormData((prev) => ({ ...prev, avatar: compressed }));
+    } catch (err: any) {
+      alert(err?.message || 'فشل ضغط صورة المعلم');
+    } finally {
+      setIsCompressingTeacherPhoto(false);
     }
   };
 
@@ -348,13 +420,91 @@ export const AdminTeachersDashboard: React.FC<AdminTeachersDashboardProps> = ({
           </div>
 
           <div className="bg-white/10 backdrop-blur-md rounded-2xl p-3 border border-white/10">
-            <span className="text-[11px] text-purple-200 block font-bold">أقسام التخصص المعتمدة</span>
+            <span className="text-[11px] text-purple-200 block font-bold">المواد والمهام التدريسية</span>
             <span className="text-xl font-black text-cyan-300 mt-1 block">
-              {new Set(teachers.map((t) => t.majorDepartment)).size} تخصص
+              {new Set(teachers.map((t) => t.subject)).size} مادة
             </span>
           </div>
         </div>
       </div>
+
+      {/* Hidden file input for database restore */}
+      <input
+        type="file"
+        ref={importFileRef}
+        accept=".json,application/json"
+        onChange={handleImportFileChange}
+        className="hidden"
+      />
+
+      {/* Hidden file input for teacher photo */}
+      <input
+        type="file"
+        ref={teacherPhotoRef}
+        accept="image/*"
+        onChange={handleTeacherPhotoFile}
+        className="hidden"
+      />
+
+      {/* Database & Dual-Layer Persistence Hub */}
+      <div className="bg-white p-4 sm:p-5 rounded-3xl border border-slate-200 shadow-xs flex flex-col md:flex-row items-center justify-between gap-4">
+        <div className="flex items-center gap-3 w-full md:w-auto">
+          <div className="w-10 h-10 rounded-2xl bg-purple-50 text-purple-700 flex items-center justify-center shrink-0 border border-purple-200">
+            <HardDrive className="w-5 h-5" />
+          </div>
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <h4 className="text-xs sm:text-sm font-black text-slate-900">
+                إدارة قاعدة البيانات والحفظ الدائم
+              </h4>
+              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-50 text-emerald-700 border border-emerald-200">
+                <Check className="w-3 h-3 text-emerald-600" />
+                <span>حفظ لحظي نشط (LocalStorage + IndexedDB)</span>
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-500 mt-0.5">
+              بيانات المعلمين والطلاب والنقاط والمهام ثابتة وتُحفظ محلياً وبقاعدة البيانات دون أن تُمحى مع الريفريش.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2 w-full md:w-auto justify-end">
+          {students.length === 0 && onSeedSampleStudents && (
+            <button
+              type="button"
+              onClick={onSeedSampleStudents}
+              className="flex items-center gap-1.5 px-3 py-2 bg-amber-50 hover:bg-amber-100 text-amber-900 text-xs font-bold rounded-xl border border-amber-200 transition-all cursor-pointer"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-amber-600" />
+              <span>توليد عينة طلاب المدرسة</span>
+            </button>
+          )}
+
+          <button
+            type="button"
+            onClick={handleExportBackup}
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold rounded-xl transition-all cursor-pointer"
+          >
+            <Download className="w-3.5 h-3.5 text-purple-700" />
+            <span>تصدير نسخة احتياطية (JSON)</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => importFileRef.current?.click()}
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-purple-50 hover:bg-purple-100 text-purple-800 text-xs font-bold rounded-xl border border-purple-200 transition-all cursor-pointer"
+          >
+            <FileUp className="w-3.5 h-3.5 text-purple-700" />
+            <span>استيراد واستعادة قاعدة البيانات (JSON)</span>
+          </button>
+        </div>
+      </div>
+
+      {backupSuccessMessage && (
+        <div className="p-3 bg-emerald-50 text-emerald-800 border border-emerald-200 rounded-2xl text-xs font-bold text-center">
+          {backupSuccessMessage}
+        </div>
+      )}
 
       {/* Filter and Search Bar */}
       <div className="bg-white p-4 rounded-3xl border border-slate-200 shadow-xs space-y-3">
@@ -385,17 +535,17 @@ export const AdminTeachersDashboard: React.FC<AdminTeachersDashboardProps> = ({
             </select>
           </div>
 
-          {/* Department Filter */}
+          {/* Subject Filter */}
           <div className="sm:col-span-3">
             <select
-              value={departmentFilter}
-              onChange={(e) => setDepartmentFilter(e.target.value)}
+              value={subjectFilter}
+              onChange={(e) => setSubjectFilter(e.target.value)}
               className="w-full px-3 py-2.5 text-xs border border-slate-200 rounded-2xl focus:outline-hidden focus:ring-2 focus:ring-purple-500 bg-white"
             >
-              <option value="all">كافة الأقسام والمجالات</option>
-              {Array.from(new Set(teachers.map((t) => t.majorDepartment))).map((dept) => (
-                <option key={dept} value={dept}>
-                  {dept}
+              <option value="all">كافة المواد والتخصصات</option>
+              {Array.from(new Set(teachers.map((t) => t.subject).filter(Boolean))).map((sub) => (
+                <option key={sub} value={sub}>
+                  {sub}
                 </option>
               ))}
             </select>
@@ -420,12 +570,12 @@ export const AdminTeachersDashboard: React.FC<AdminTeachersDashboardProps> = ({
           <span>
             عرض <strong>{filteredTeachers.length}</strong> من أصل {teachers.length} معلماً
           </span>
-          {(searchQuery || roleFilter !== 'all' || departmentFilter !== 'all' || statusFilter !== 'all') && (
+          {(searchQuery || roleFilter !== 'all' || subjectFilter !== 'all' || statusFilter !== 'all') && (
             <button
               onClick={() => {
                 setSearchQuery('');
                 setRoleFilter('all');
-                setDepartmentFilter('all');
+                setSubjectFilter('all');
                 setStatusFilter('all');
               }}
               className="text-purple-700 hover:text-purple-900 font-bold"
@@ -503,7 +653,9 @@ export const AdminTeachersDashboard: React.FC<AdminTeachersDashboardProps> = ({
                         )}
                       </div>
                       <p className="text-xs text-purple-700 font-bold mt-0.5">{teacher.subject}</p>
-                      <span className="text-[10px] text-slate-400 block">{teacher.majorDepartment}</span>
+                      {teacher.majorDepartment && (
+                        <span className="text-[10px] text-slate-400 block">{teacher.majorDepartment}</span>
+                      )}
                     </div>
                   </div>
 
@@ -694,18 +846,21 @@ export const AdminTeachersDashboard: React.FC<AdminTeachersDashboardProps> = ({
                 </div>
               )}
 
-              {/* Title Prefix & Name */}
+              {/* Title and Name */}
               <div className="grid grid-cols-3 gap-2">
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">اللقب</label>
                   <select
                     value={formData.title}
                     onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-white focus:ring-2 focus:ring-purple-500 font-bold"
+                    className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-white focus:ring-2 focus:ring-purple-500 font-bold text-xs sm:text-sm"
                   >
                     <option value="مهندس">م. (مهندس)</option>
+                    <option value="مهندسة">م. (مهندسة)</option>
                     <option value="دكتور">د. (دكتور)</option>
+                    <option value="دكتورة">د. (دكتورة)</option>
                     <option value="أستاذ">أ. (أستاذ)</option>
+                    <option value="أستاذة">أ. (أستاذة)</option>
                     <option value="أخصائي">أخصائي</option>
                   </select>
                 </div>
@@ -799,36 +954,19 @@ export const AdminTeachersDashboard: React.FC<AdminTeachersDashboardProps> = ({
                 </div>
               </div>
 
-              {/* Department & Subject */}
-              <div className="space-y-3">
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">القسم / التخصص التكنولوجي</label>
-                  <select
-                    value={formData.majorDepartment}
-                    onChange={(e) => setFormData({ ...formData, majorDepartment: e.target.value })}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-white focus:ring-2 focus:ring-purple-500"
-                  >
-                    <option value="تطوير البرمجيات وحلول الويب">تطوير البرمجيات وحلول الويب (Software Development)</option>
-                    <option value="أمن المعلومات والأمن السيبراني">أمن المعلومات والأمن السيبراني (Cyber Security)</option>
-                    <option value="هندسة الشبكات والاتصالات">هندسة الشبكات والاتصالات (Networks & Telecom)</option>
-                    <option value="التدريب الميداني OJT">التدريب الميداني OJT ومراكز بيانات WE</option>
-                    <option value="إدارة المدرسة والانضباط">إدارة المدرسة وشؤون الطلاب والانضباط</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">
-                    المادة / المهام التدريبية <span className="text-rose-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="مثال: هندسة البرمجيات، شبكات الألياف الضوئية، تدريب عملي معملي"
-                    value={formData.subject}
-                    onChange={(e) => setFormData({ ...formData, subject: e.target.value })}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-purple-500"
-                  />
-                </div>
+              {/* Subject (Primary field) */}
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">
+                  المادة / التخصص التدريسي <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="مثال: هندسة البرمجيات، شبكات الألياف الضوئية، تدريب عملي، لغة عربية..."
+                  value={formData.subject}
+                  onChange={(e) => setFormData({ ...formData, subject: e.target.value })}
+                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-purple-500 text-sm font-medium"
+                />
               </div>
 
               {/* Phone & Email (Optional) */}
@@ -858,29 +996,54 @@ export const AdminTeachersDashboard: React.FC<AdminTeachersDashboardProps> = ({
                 </div>
               </div>
 
-              {/* Avatar Selector */}
+              {/* Custom Photo URL Input & Live Preview */}
               <div>
-                <label className="block font-bold text-slate-700 mb-1.5">الصورة الرمزية للمعلم</label>
-                <div className="flex items-center gap-2 overflow-x-auto pb-2">
-                  {PRESET_AVATARS.map((avatarUrl, idx) => (
-                    <button
-                      key={idx}
-                      type="button"
-                      onClick={() => setFormData({ ...formData, avatar: avatarUrl })}
-                      className={`relative shrink-0 rounded-2xl p-0.5 border-2 transition-all ${
-                        formData.avatar === avatarUrl
-                          ? 'border-purple-600 scale-105 shadow-md'
-                          : 'border-transparent opacity-70 hover:opacity-100'
-                      }`}
-                    >
-                      <img
-                        src={avatarUrl}
-                        alt="Avatar"
-                        className="w-10 h-10 rounded-xl object-cover"
-                        referrerPolicy="no-referrer"
-                      />
-                    </button>
-                  ))}
+                <label className="block font-bold text-slate-700 mb-1.5 flex items-center gap-1.5">
+                  <Camera className="w-4 h-4 text-purple-600" />
+                  رابط صورة المعلم / المهندس
+                </label>
+                <div className="flex items-center gap-3">
+                  <div className="relative shrink-0">
+                    <img
+                      src={formData.avatar || DEFAULT_AVATAR}
+                      alt="معاينة الصورة"
+                      onError={(e) => {
+                        (e.currentTarget as HTMLImageElement).src = DEFAULT_AVATAR;
+                      }}
+                      className="w-14 h-14 rounded-2xl object-cover border-2 border-purple-300 bg-purple-50 shadow-xs"
+                      referrerPolicy="no-referrer"
+                    />
+                  </div>
+                  <div className="flex-1 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        disabled={isCompressingTeacherPhoto}
+                        onClick={() => teacherPhotoRef.current?.click()}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-50 hover:bg-purple-100 disabled:opacity-60 text-purple-800 text-xs font-bold rounded-xl border border-purple-200 cursor-pointer transition-colors"
+                      >
+                        {isCompressingTeacherPhoto ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin text-purple-700" />
+                        ) : (
+                          <Upload className="w-3.5 h-3.5 text-purple-700" />
+                        )}
+                        <span>
+                          {isCompressingTeacherPhoto
+                            ? 'جاري تجهيز الصورة...'
+                            : 'رفع صورة من جهازك'}
+                        </span>
+                      </button>
+                      <span className="text-[10px] text-slate-400">أو ألصق رابط URL أدناه</span>
+                    </div>
+                    <input
+                      type="url"
+                      placeholder="أدخل رابط صورة المعلم (URL) أو اتركها للصورة الافتراضية"
+                      value={formData.avatar}
+                      onChange={(e) => setFormData({ ...formData, avatar: e.target.value })}
+                      className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:ring-2 focus:ring-purple-500 font-mono text-left"
+                      dir="ltr"
+                    />
+                  </div>
                 </div>
               </div>
 
