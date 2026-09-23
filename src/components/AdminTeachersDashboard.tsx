@@ -87,6 +87,7 @@ export const AdminTeachersDashboard: React.FC<AdminTeachersDashboardProps> = ({
     password: '',
     role: 'teacher' as 'teacher' | 'supervisor' | 'admin',
     subject: '',
+    majorDepartment: '',
     phone: '',
     email: '',
     status: 'active' as 'active' | 'suspended',
@@ -147,6 +148,7 @@ export const AdminTeachersDashboard: React.FC<AdminTeachersDashboardProps> = ({
       password: teacher.password,
       role: teacher.role,
       subject: teacher.subject,
+      majorDepartment: teacher.majorDepartment || '',
       phone: teacher.phone || '',
       email: teacher.email || '',
       status: teacher.status || 'active',
@@ -168,6 +170,7 @@ export const AdminTeachersDashboard: React.FC<AdminTeachersDashboardProps> = ({
       password: '123',
       role: 'teacher',
       subject: '',
+      majorDepartment: '',
       phone: '',
       email: '',
       status: 'active',
@@ -242,7 +245,7 @@ export const AdminTeachersDashboard: React.FC<AdminTeachersDashboardProps> = ({
         password: formData.password.trim(),
         role: formData.role,
         subject: formData.subject.trim(),
-        majorDepartment: editingTeacher.majorDepartment,
+        majorDepartment: formData.majorDepartment.trim() || undefined,
         phone: formData.phone.trim(),
         email: formData.email.trim(),
         status: formData.status,
@@ -260,6 +263,7 @@ export const AdminTeachersDashboard: React.FC<AdminTeachersDashboardProps> = ({
         password: formData.password.trim(),
         role: formData.role,
         subject: formData.subject.trim(),
+        majorDepartment: formData.majorDepartment.trim() || undefined,
         phone: formData.phone.trim(),
         email: formData.email.trim(),
         status: formData.status,
@@ -958,19 +962,34 @@ export const AdminTeachersDashboard: React.FC<AdminTeachersDashboardProps> = ({
                 </div>
               </div>
 
-              {/* Subject (Primary field) */}
-              <div>
-                <label className="block font-bold text-slate-700 mb-1">
-                  المادة / التخصص التدريسي <span className="text-rose-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="مثال: هندسة البرمجيات، شبكات الألياف الضوئية، تدريب عملي، لغة عربية..."
-                  value={formData.subject}
-                  onChange={(e) => setFormData({ ...formData, subject: e.target.value })}
-                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-purple-500 text-sm font-medium"
-                />
+              {/* Subject & Major Department */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    المادة التدريسية <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="مثال: هندسة البرمجيات، شبكات، تدريب عملي..."
+                    value={formData.subject}
+                    onChange={(e) => setFormData({ ...formData, subject: e.target.value })}
+                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-purple-500 text-sm font-medium"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    التخصص / القسم التكنولوجي
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="مثال: تكنولوجيا المعلومات، الاتصالات، عام..."
+                    value={formData.majorDepartment}
+                    onChange={(e) => setFormData({ ...formData, majorDepartment: e.target.value })}
+                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-purple-500 text-sm font-medium"
+                  />
+                </div>
               </div>
 
               {/* Phone & Email (Optional) */}

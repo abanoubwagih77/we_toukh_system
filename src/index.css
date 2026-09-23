@@ -4,12 +4,20 @@
   html, body {
     overflow-x: hidden;
     max-width: 100vw;
+    -webkit-tap-highlight-color: transparent;
   }
   body {
     font-family: 'Cairo', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   }
   code, pre, .font-mono {
     font-family: 'JetBrains Mono', monospace;
+  }
+  /* Prevent rogue text carets from appearing when clicking general elements */
+  *:not(input):not(textarea):not([contenteditable="true"]) {
+    caret-color: transparent;
+  }
+  button, [role="button"], a {
+    cursor: pointer;
   }
 }
 

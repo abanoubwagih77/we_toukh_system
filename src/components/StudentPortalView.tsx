@@ -3,7 +3,6 @@ import { Student, SecretMission, PointLog } from '../types';
 import { BADGE_TIERS, calculateNextBadgeInfo } from '../utils/badges';
 import { PerformanceChart } from './PerformanceChart';
 import { IdCardModal } from './IdCardModal';
-import { CertificateModal } from './CertificateModal';
 import {
   Award,
   TrendingUp,
@@ -39,7 +38,6 @@ export const StudentPortalView: React.FC<StudentPortalViewProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<'overview' | 'attribution' | 'logs' | 'missions' | 'badges'>('overview');
   const [isIdCardOpen, setIsIdCardOpen] = useState<boolean>(false);
-  const [isCertificateOpen, setIsCertificateOpen] = useState<boolean>(false);
 
   // Quiz interactive state for student
   const [activeQuizMission, setActiveQuizMission] = useState<SecretMission | null>(null);
@@ -143,16 +141,8 @@ export const StudentPortalView: React.FC<StudentPortalViewProps> = ({
 
             <div className="flex items-center gap-2">
               <button
-                onClick={() => setIsCertificateOpen(true)}
-                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-400 hover:bg-amber-500 text-slate-950 text-xs font-black shadow-xs transition-colors"
-              >
-                <Award className="w-4 h-4" />
-                <span className="hidden sm:inline">شهادة التقدير</span>
-              </button>
-
-              <button
                 onClick={() => setIsIdCardOpen(true)}
-                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-purple-50 hover:bg-purple-100 text-purple-900 text-xs font-bold border border-purple-200 transition-colors"
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-purple-50 hover:bg-purple-100 text-purple-900 text-xs font-bold border border-purple-200 transition-colors cursor-pointer"
               >
                 <ScanLine className="w-4 h-4 text-purple-700" />
                 <span className="hidden sm:inline">كارنيهي وكود QR</span>
@@ -160,7 +150,7 @@ export const StudentPortalView: React.FC<StudentPortalViewProps> = ({
 
               <button
                 onClick={onLogout}
-                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-rose-50 hover:text-rose-700 text-slate-700 text-xs font-bold border border-slate-200 transition-colors"
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-rose-50 hover:text-rose-700 text-slate-700 text-xs font-bold border border-slate-200 transition-colors cursor-pointer"
                 title="تسجيل الخروج"
               >
                 <LogOut className="w-4 h-4" />
@@ -501,13 +491,6 @@ export const StudentPortalView: React.FC<StudentPortalViewProps> = ({
                   شفافية كاملة: تعرف على من قام بمنحك الحوافز أو رصد الملاحظات من معلمي المواد ومهندسي التدريب العملي بمدرسة WE.
                 </p>
               </div>
-              <button
-                onClick={() => setIsCertificateOpen(true)}
-                className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black rounded-xl text-xs flex items-center gap-1.5 shadow-xs shrink-0"
-              >
-                <Award className="w-4 h-4" />
-                <span>عرض شهادة التقدير</span>
-              </button>
             </div>
 
             {teacherBreakdownList.length === 0 ? (
@@ -693,13 +676,6 @@ export const StudentPortalView: React.FC<StudentPortalViewProps> = ({
         student={student}
         isOpen={isIdCardOpen}
         onClose={() => setIsIdCardOpen(false)}
-      />
-
-      {/* Certificate Modal */}
-      <CertificateModal
-        student={student}
-        isOpen={isCertificateOpen}
-        onClose={() => setIsCertificateOpen(false)}
       />
     </div>
   );

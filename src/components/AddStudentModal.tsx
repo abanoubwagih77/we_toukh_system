@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Student } from '../types';
 import { SCHOOL_INFO } from '../data/mockData';
 import { calculateBadge, calculatePercentage } from '../utils/badges';
@@ -23,10 +23,25 @@ export const AddStudentModal: React.FC<AddStudentModalProps> = ({
   const [grade, setGrade] = useState<string>(SCHOOL_INFO.grades[0]);
   const [major, setMajor] = useState<string>(SCHOOL_INFO.majors[0]);
   const [initialPoints, setInitialPoints] = useState<number>(15);
+  const [attendanceRate, setAttendanceRate] = useState<number>(100);
   const [avatarBase64, setAvatarBase64] = useState<string>('');
   const [isCompressing, setIsCompressing] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string>('');
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Clear form completely whenever modal opens
+  useEffect(() => {
+    if (isOpen) {
+      setName('');
+      setNationalId('');
+      setGrade(SCHOOL_INFO.grades[0]);
+      setMajor(SCHOOL_INFO.majors[0]);
+      setInitialPoints(15);
+      setAttendanceRate(100);
+      setAvatarBase64('');
+      setErrorMessage('');
+    }
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -101,7 +116,7 @@ export const AddStudentModal: React.FC<AddStudentModalProps> = ({
       targetPoints: 50,
       percentage: initialPercentage,
       badge: initialBadge,
-      attendanceRate: 98,
+      attendanceRate: Math.min(100, Math.max(0, attendanceRate)),
       academicScore: 85,
       behavioralScore: 90,
       secretMissionsCompleted: 0,
@@ -122,7 +137,7 @@ export const AddStudentModal: React.FC<AddStudentModalProps> = ({
           type: 'positive',
           category: 'رصيد نقاط الترحيب والبداية',
           points: initialPoints,
-          note: `تسجيل الطالب رسمياً في الصف (${grade}) وتخصص (${major}) بمدرسة WE للتطبيقات التكنولوجية`,
+          note: `تسجيل الطالب رسمياً في الصف (${grade}) وتخصص (${major}) بمدرسة WE للتطبيقات التكنولوجية (حضور: ${attendanceRate}%)`,
           teacherName: 'إدارة شؤون الطلاب',
           createdAt: new Date().toISOString()
         }
@@ -130,6 +145,11 @@ export const AddStudentModal: React.FC<AddStudentModalProps> = ({
     };
 
     onAddStudent(newStudent);
+    setName('');
+    setNationalId('');
+    setAvatarBase64('');
+    setAttendanceRate(100);
+    setInitialPoints(15);
     onClose();
   };
 
@@ -198,14 +218,14 @@ export const AddStudentModal: React.FC<AddStudentModalProps> = ({
             </span>
           </div>
 
-          {/* Grade and Points */}
-          <div className="grid grid-cols-2 gap-3">
+          {/* Grade, Attendance Rate, and Points */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
-              <label className="block font-bold text-slate-700 mb-1">الصف الدراسي وفصله: *</label>
+              <label className="block font-bold text-slate-700 mb-1">الصف والفصل: *</label>
               <select
                 value={grade}
                 onChange={(e) => setGrade(e.target.value)}
-                className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl bg-white focus:ring-2 focus:ring-purple-500"
+                className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl bg-white focus:ring-2 focus:ring-purple-500 font-bold"
               >
                 <optgroup label="الصف الأول الثانوي">
                   {SCHOOL_INFO.grades.slice(0, 6).map((g) => (
@@ -229,6 +249,25 @@ export const AddStudentModal: React.FC<AddStudentModalProps> = ({
                   ))}
                 </optgroup>
               </select>
+            </div>
+
+            <div>
+              <label className="block font-bold text-slate-700 mb-1">نسبة الحضور والالتزام (%):</label>
+              <div className="relative">
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  value={attendanceRate}
+                  onChange={(e) => {
+                    const val = parseInt(e.target.value);
+                    setAttendanceRate(isNaN(val) ? 0 : Math.min(100, Math.max(0, val)));
+                  }}
+                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl font-bold text-emerald-700 focus:ring-2 focus:ring-purple-500 bg-emerald-50/30"
+                  placeholder="100"
+                />
+                <span className="absolute left-2.5 top-2 text-xs font-bold text-slate-400">%</span>
+              </div>
             </div>
 
             <div>

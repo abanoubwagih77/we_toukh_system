@@ -10,7 +10,8 @@ import {
   MinusCircle,
   Eye,
   Target,
-  Cpu
+  Cpu,
+  Pencil
 } from 'lucide-react';
 
 interface StudentCardProps {
@@ -18,13 +19,15 @@ interface StudentCardProps {
   onOpenProfile: (student: Student) => void;
   onOpenIdCard: (student: Student) => void;
   onOpenAddPoints: (student: Student, defaultType?: 'positive' | 'negative') => void;
+  onEditStudent?: (student: Student) => void;
 }
 
 export const StudentCard: React.FC<StudentCardProps> = ({
   student,
   onOpenProfile,
   onOpenIdCard,
-  onOpenAddPoints
+  onOpenAddPoints,
+  onEditStudent
 }) => {
   const badgeInfo = BADGE_TIERS[student.badge];
   const history = student.performanceHistory;
@@ -172,22 +175,33 @@ export const StudentCard: React.FC<StudentCardProps> = ({
           </button>
         </div>
 
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-3 gap-1.5">
           <button
             onClick={() => onOpenProfile(student)}
-            className="flex items-center justify-center gap-1.5 py-2 px-3 bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold rounded-xl shadow-xs transition-colors"
+            className="flex items-center justify-center gap-1 py-2 px-2 bg-purple-600 hover:bg-purple-700 text-white text-[11px] font-bold rounded-xl shadow-xs transition-colors cursor-pointer"
           >
             <Eye className="w-3.5 h-3.5" />
-            <span>عرض البروفايل</span>
+            <span>البروفايل</span>
           </button>
 
           <button
             onClick={() => onOpenIdCard(student)}
-            className="flex items-center justify-center gap-1.5 py-2 px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition-colors"
+            className="flex items-center justify-center gap-1 py-2 px-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-bold rounded-xl transition-colors cursor-pointer"
           >
             <ScanLine className="w-3.5 h-3.5 text-purple-600" />
-            <span>الكارنيه & QR</span>
+            <span>الكارنيه</span>
           </button>
+
+          {onEditStudent && (
+            <button
+              onClick={() => onEditStudent(student)}
+              className="flex items-center justify-center gap-1 py-2 px-2 bg-amber-50 hover:bg-amber-100 text-amber-800 text-[11px] font-bold rounded-xl border border-amber-200 transition-colors cursor-pointer"
+              title="تعديل بيانات الطالب"
+            >
+              <Pencil className="w-3.5 h-3.5 text-amber-600" />
+              <span>تعديل</span>
+            </button>
+          )}
         </div>
       </div>
     </div>

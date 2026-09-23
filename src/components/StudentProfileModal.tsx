@@ -17,7 +17,8 @@ import {
   FileText,
   AlertTriangle,
   Cpu,
-  Target
+  Target,
+  Pencil
 } from 'lucide-react';
 
 interface StudentProfileModalProps {
@@ -28,6 +29,7 @@ interface StudentProfileModalProps {
   onOpenAddPoints: (student: Student, defaultType?: PointType) => void;
   onOpenIdCard: (student: Student) => void;
   onOpenCertificate?: (student: Student) => void;
+  onEditStudent?: (student: Student) => void;
 }
 
 interface TeacherBreakdownItem {
@@ -45,7 +47,8 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
   missions,
   onOpenAddPoints,
   onOpenIdCard,
-  onOpenCertificate
+  onOpenCertificate,
+  onEditStudent
 }) => {
   const [activeTab, setActiveTab] = useState<'overview' | 'attribution' | 'logs' | 'missions'>('overview');
   const [logFilter, setLogFilter] = useState<'all' | 'positive' | 'negative'>('all');
@@ -178,10 +181,21 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
                 <span>عرض الكارنيه وQR</span>
               </button>
 
+              {onEditStudent && (
+                <button
+                  onClick={() => onEditStudent(student)}
+                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-400 hover:bg-amber-500 text-slate-950 text-xs font-black shadow-sm transition-all hover:scale-105 active:scale-95 cursor-pointer"
+                  title="تعديل بيانات الطالب، الفصل، ونسبة الحضور"
+                >
+                  <Pencil className="w-4 h-4" />
+                  <span>تعديل البيانات</span>
+                </button>
+              )}
+
               {onOpenCertificate && (
                 <button
                   onClick={() => onOpenCertificate(student)}
-                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 text-xs font-black shadow-md transition-all hover:scale-105 active:scale-95"
+                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 text-xs font-black shadow-md transition-all hover:scale-105 active:scale-95 cursor-pointer"
                 >
                   <Award className="w-4 h-4" />
                   <span>شهادة تميز</span>

@@ -17,6 +17,7 @@ import { LeaderboardView } from './components/LeaderboardView';
 import { TeacherAttributionView } from './components/TeacherAttributionView';
 import { AdminTeachersDashboard } from './components/AdminTeachersDashboard';
 import { CertificateModal } from './components/CertificateModal';
+import { EditStudentModal } from './components/EditStudentModal';
 import {
   safeLocalStorageGet,
   safeLocalStorageSet,
@@ -29,6 +30,7 @@ import {
   subscribeToMissions,
   saveStudentToCloud,
   syncAllStudentsToCloud,
+  deleteStudentFromCloud,
   saveTeacherToCloud,
   syncAllTeachersToCloud,
   deleteTeacherFromCloud,
@@ -66,12 +68,13 @@ const cleanTeacherData = (list: Teacher[]): Teacher[] => {
       return {
         ...t,
         id: 't-admin',
-        name: 'م. أبانوب وجيه (مدير المنظومة)',
+        name: t.name && !t.name.includes('بهاء') ? t.name : 'م. أبانوب وجيه (مدير المنظومة)',
         username: t.username || 'admin',
         role: 'admin',
-        title: 'مهندس',
+        title: t.title || 'مهندس',
         avatar,
-        subject: 'الإدارة العامة والإشراف التكنولوجي',
+        subject: t.subject || 'الإدارة العامة والإشراف التكنولوجي',
+        majorDepartment: t.majorDepartment || 'إدارة مدرسة WE للتكنولوجيا التطبيقية',
         phone: t.phone || '',
         email: t.email || '',
         status: 'active'
@@ -164,6 +167,7 @@ export default function App() {
 
   // Modal States
   const [profileStudent, setProfileStudent] = useState<Student | null>(null);
+  const [editingStudent, setEditingStudent] = useState<Student | null>(null);
   const [idCardStudent, setIdCardStudent] = useState<Student | null>(null);
   const [certificateStudent, setCertificateStudent] = useState<Student | null>(null);
   const [addPointsState, setAddPointsState] = useState<{
@@ -577,6 +581,33 @@ export default function App() {
     );
   };
 
+  // Student Management Handlers
+  const handleUpdateStudent = (updatedStudent: Student) => {
+    setStudents((prev) =>
+      prev.map((s) => (s.id === updatedStudent.id ? updatedStudent : s))
+    );
+    if (profileStudent?.id === updatedStudent.id) {
+      setProfileStudent(updatedStudent);
+    }
+    if (idCardStudent?.id === updatedStudent.id) {
+      setIdCardStudent(updatedStudent);
+    }
+    saveStudentToCloud(updatedStudent).catch(console.error);
+    setEditingStudent(null);
+  };
+
+  const handleDeleteStudent = (studentId: string) => {
+    setStudents((prev) => prev.filter((s) => s.id !== studentId));
+    if (profileStudent?.id === studentId) {
+      setProfileStudent(null);
+    }
+    if (idCardStudent?.id === studentId) {
+      setIdCardStudent(null);
+    }
+    deleteStudentFromCloud(studentId).catch(console.error);
+    setEditingStudent(null);
+  };
+
   // Teacher Management Handlers (Admin)
   const handleAddTeacher = (newTeacher: Teacher) => {
     setTeachers((prev) => [newTeacher, ...prev]);
@@ -594,6 +625,7 @@ export default function App() {
 
     if (currentTeacher?.id === updatedTeacher.id) {
       setCurrentTeacher(updatedTeacher);
+      safeLocalStorageSet('we_school_current_teacher', updatedTeacher);
     }
 
     // Dynamic global propagation: update attribution logs and missions
@@ -948,6 +980,7 @@ export default function App() {
                     student={student}
                     onOpenProfile={(s) => setProfileStudent(s)}
                     onOpenIdCard={(s) => setIdCardStudent(s)}
+                    onEditStudent={(s) => setEditingStudent(s)}
                     onOpenAddPoints={(s, type) =>
                       setAddPointsState({ student: s, defaultType: type })
                     }
@@ -1038,8 +1071,18 @@ export default function App() {
           onOpenAddPoints={(s, type) => setAddPointsState({ student: s, defaultType: type })}
           onOpenIdCard={(s) => setIdCardStudent(s)}
           onOpenCertificate={(s) => setCertificateStudent(s)}
+          onEditStudent={(s) => setEditingStudent(s)}
         />
       )}
+
+      {/* Edit Student Modal */}
+      <EditStudentModal
+        student={editingStudent}
+        isOpen={!!editingStudent}
+        onClose={() => setEditingStudent(null)}
+        onSaveStudent={handleUpdateStudent}
+        onDeleteStudent={handleDeleteStudent}
+      />
 
       {/* Certificate Modal for Student Recognition */}
       <CertificateModal

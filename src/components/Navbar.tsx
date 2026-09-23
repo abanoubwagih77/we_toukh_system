@@ -80,8 +80,10 @@ export const Navbar: React.FC<NavbarProps> = ({
                 </span>
               </div>
               {currentTeacher && (
-                <p className="text-[11px] text-slate-500 truncate max-w-[180px] sm:max-w-xs leading-none mt-0.5">
-                  {currentTeacher.name} {currentTeacher.subject ? `• ${currentTeacher.subject}` : ''}
+                <p className="text-[11px] text-slate-500 truncate max-w-[220px] sm:max-w-md leading-none mt-0.5">
+                  {currentTeacher.name}
+                  {currentTeacher.subject ? ` • ${currentTeacher.subject}` : ''}
+                  {currentTeacher.majorDepartment ? ` (${currentTeacher.majorDepartment})` : ''}
                 </p>
               )}
             </div>
