@@ -5,7 +5,7 @@ export const INITIAL_TEACHERS: Teacher[] = [
     id: 't-admin',
     name: 'م. أبانوب وجيه (مدير المنظومة)',
     username: 'admin',
-    password: '123',
+    password: 'Bebo@1234',
     subject: 'الإدارة العامة والإشراف التكنولوجي',
     majorDepartment: 'إدارة مدرسة WE للتكنولوجيا التطبيقية',
     avatar: '',

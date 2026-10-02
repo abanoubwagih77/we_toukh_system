@@ -74,9 +74,10 @@ export const Navbar: React.FC<NavbarProps> = ({
                     معلم
                   </span>
                 )}
-                <span className="hidden md:inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-[10px] font-bold border border-emerald-200 shrink-0">
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-[10px] font-bold border border-emerald-200 shrink-0">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                  <span>سحابي متزامن</span>
+                  <span className="hidden sm:inline">سحابة مركزية (Firestore)</span>
+                  <span className="sm:hidden">سحابي</span>
                 </span>
               </div>
               {currentTeacher && (

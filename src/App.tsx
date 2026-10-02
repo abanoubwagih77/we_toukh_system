@@ -57,31 +57,21 @@ const STORAGE_KEY_MISSIONS = 'we_school_missions_v2';
 const STORAGE_KEY_AUTH = 'we_school_auth_v1';
 const STORAGE_KEY_TEACHERS = 'we_school_teachers_v3';
 
-// Helper to ensure any old references to "بهاء وجيه" or outdated admin state migrate dynamically
+// Helper to ensure any old references to "بهاء وجيه" or broken avatars migrate cleanly
 const cleanTeacherData = (list: Teacher[]): Teacher[] => {
-  return list.map((t) => {
+  return (list || []).map((t) => {
     let avatar = t.avatar || '';
     if (avatar.includes('photo-1472099645785-5658abf4ff4e') || avatar.includes('unsplash.com')) {
       avatar = '';
     }
-    if (t.id === 't-admin' || t.name.includes('بهاء وجيه') || t.name.includes('بهاء')) {
-      return {
-        ...t,
-        id: 't-admin',
-        name: t.name && !t.name.includes('بهاء') ? t.name : 'م. أبانوب وجيه (مدير المنظومة)',
-        username: t.username || 'admin',
-        role: 'admin',
-        title: t.title || 'مهندس',
-        avatar,
-        subject: t.subject || 'الإدارة العامة والإشراف التكنولوجي',
-        majorDepartment: t.majorDepartment || 'إدارة مدرسة WE للتكنولوجيا التطبيقية',
-        phone: t.phone || '',
-        email: t.email || '',
-        status: 'active'
-      };
+    let cleanName = t.name || '';
+    if (cleanName.includes('بهاء') || t.id === 't-admin') {
+      cleanName = 'م. أبانوب وجيه (مدير المنظومة)';
     }
+
     return {
       ...t,
+      name: cleanName || t.name,
       avatar
     };
   });
@@ -369,7 +359,7 @@ export default function App() {
   };
 
   // Add Points / Infraction Handler
-  const handleAddPoint = (
+  const handleAddPoint = async (
     studentId: string,
     type: PointType,
     category: string,
@@ -436,7 +426,7 @@ export default function App() {
     );
 
     if (targetUpdatedStudent) {
-      saveStudentToCloud(targetUpdatedStudent).catch(console.error);
+      await saveStudentToCloud(targetUpdatedStudent);
     }
   };
 
@@ -582,7 +572,7 @@ export default function App() {
   };
 
   // Student Management Handlers
-  const handleUpdateStudent = (updatedStudent: Student) => {
+  const handleUpdateStudent = async (updatedStudent: Student) => {
     setStudents((prev) =>
       prev.map((s) => (s.id === updatedStudent.id ? updatedStudent : s))
     );
@@ -592,11 +582,11 @@ export default function App() {
     if (idCardStudent?.id === updatedStudent.id) {
       setIdCardStudent(updatedStudent);
     }
-    saveStudentToCloud(updatedStudent).catch(console.error);
+    await saveStudentToCloud(updatedStudent);
     setEditingStudent(null);
   };
 
-  const handleDeleteStudent = (studentId: string) => {
+  const handleDeleteStudent = async (studentId: string) => {
     setStudents((prev) => prev.filter((s) => s.id !== studentId));
     if (profileStudent?.id === studentId) {
       setProfileStudent(null);
@@ -604,28 +594,29 @@ export default function App() {
     if (idCardStudent?.id === studentId) {
       setIdCardStudent(null);
     }
-    deleteStudentFromCloud(studentId).catch(console.error);
+    await deleteStudentFromCloud(studentId);
     setEditingStudent(null);
   };
 
   // Teacher Management Handlers (Admin)
-  const handleAddTeacher = (newTeacher: Teacher) => {
-    setTeachers((prev) => [newTeacher, ...prev]);
-    saveTeacherToCloud(newTeacher).catch(console.error);
+  const handleAddTeacher = async (newTeacher: Teacher) => {
+    setTeachers((prev) => [newTeacher, ...prev.filter((t) => t.id !== newTeacher.id)]);
+    await saveTeacherToCloud(newTeacher);
   };
 
-  const handleUpdateTeacher = (updatedTeacher: Teacher) => {
+  const handleUpdateTeacher = async (updatedTeacher: Teacher) => {
     const oldTeacher = teachers.find((t) => t.id === updatedTeacher.id);
     const oldName = oldTeacher?.name;
 
     setTeachers((prev) =>
       prev.map((t) => (t.id === updatedTeacher.id ? updatedTeacher : t))
     );
-    saveTeacherToCloud(updatedTeacher).catch(console.error);
+    await saveTeacherToCloud(updatedTeacher);
 
     if (currentTeacher?.id === updatedTeacher.id) {
       setCurrentTeacher(updatedTeacher);
       safeLocalStorageSet('we_school_current_teacher', updatedTeacher);
+      safeLocalStorageSet(STORAGE_KEY_AUTH, { role: 'teacher', teacher: updatedTeacher });
     }
 
     // Dynamic global propagation: update attribution logs and missions
@@ -659,9 +650,9 @@ export default function App() {
     }
   };
 
-  const handleDeleteTeacher = (teacherId: string) => {
+  const handleDeleteTeacher = async (teacherId: string) => {
     setTeachers((prev) => prev.filter((t) => t.id !== teacherId));
-    deleteTeacherFromCloud(teacherId).catch(console.error);
+    await deleteTeacherFromCloud(teacherId);
   };
 
   const handleDeleteMission = (missionId: string) => {
@@ -737,6 +728,8 @@ export default function App() {
         teachers={teachers}
         onTeacherLogin={handleTeacherLogin}
         onStudentLogin={handleStudentLogin}
+        onSyncTeachers={(t) => setTeachers(cleanTeacherData(t))}
+        onSyncStudents={(s) => setStudents(s)}
       />
     );
   }
@@ -1123,10 +1116,10 @@ export default function App() {
         isOpen={isAddStudentOpen}
         onClose={() => setIsAddStudentOpen(false)}
         existingCount={students.length}
-        onAddStudent={(newStudent) => {
+        onAddStudent={async (newStudent) => {
           setStudents((prev) => [newStudent, ...prev]);
           setProfileStudent(newStudent);
-          saveStudentToCloud(newStudent).catch(console.error);
+          await saveStudentToCloud(newStudent);
         }}
       />
     </div>

@@ -43,9 +43,9 @@ interface AdminTeachersDashboardProps {
   students: Student[];
   currentTeacher: Teacher | null;
   missions?: any[];
-  onAddTeacher: (teacher: Teacher) => void;
-  onUpdateTeacher: (teacher: Teacher) => void;
-  onDeleteTeacher: (teacherId: string) => void;
+  onAddTeacher: (teacher: Teacher) => Promise<void> | void;
+  onUpdateTeacher: (teacher: Teacher) => Promise<void> | void;
+  onDeleteTeacher: (teacherId: string) => Promise<void> | void;
   onImpersonateTeacher?: (teacher: Teacher) => void;
   onRestoreFullDatabase?: (data: { students: Student[]; teachers: Teacher[]; missions: any[] }) => void;
   onSeedSampleStudents?: () => void;
@@ -69,6 +69,7 @@ export const AdminTeachersDashboard: React.FC<AdminTeachersDashboardProps> = ({
   const [subjectFilter, setSubjectFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [isCompressingTeacherPhoto, setIsCompressingTeacherPhoto] = useState<boolean>(false);
+  const [isSavingTeacher, setIsSavingTeacher] = useState<boolean>(false);
   const [backupSuccessMessage, setBackupSuccessMessage] = useState<string>('');
   const importFileRef = React.useRef<HTMLInputElement | null>(null);
   const teacherPhotoRef = React.useRef<HTMLInputElement | null>(null);
@@ -181,7 +182,7 @@ export const AdminTeachersDashboard: React.FC<AdminTeachersDashboardProps> = ({
   };
 
   // Handle Form Submit (Add or Edit)
-  const handleFormSubmit = (e: React.FormEvent) => {
+  const handleFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError('');
 
@@ -236,43 +237,52 @@ export const AdminTeachersDashboard: React.FC<AdminTeachersDashboardProps> = ({
 
     const finalAvatar = formData.avatar.trim();
 
-    if (editingTeacher) {
-      // Update existing
-      const updated: Teacher = {
-        ...editingTeacher,
-        name: formattedName,
-        username: formData.username.trim().toLowerCase(),
-        password: formData.password.trim(),
-        role: formData.role,
-        subject: formData.subject.trim(),
-        majorDepartment: formData.majorDepartment.trim() || undefined,
-        phone: formData.phone.trim(),
-        email: formData.email.trim(),
-        status: formData.status,
-        avatar: finalAvatar,
-        title: formData.title
-      };
-      onUpdateTeacher(updated);
-      setEditingTeacher(null);
-    } else {
-      // Create new
-      const newTeacher: Teacher = {
-        id: `t-${Date.now().toString().slice(-4)}`,
-        name: formattedName,
-        username: formData.username.trim().toLowerCase(),
-        password: formData.password.trim(),
-        role: formData.role,
-        subject: formData.subject.trim(),
-        majorDepartment: formData.majorDepartment.trim() || undefined,
-        phone: formData.phone.trim(),
-        email: formData.email.trim(),
-        status: formData.status,
-        avatar: finalAvatar,
-        title: formData.title,
-        createdAt: new Date().toISOString().split('T')[0]
-      };
-      onAddTeacher(newTeacher);
-      setIsAddModalOpen(false);
+    try {
+      setIsSavingTeacher(true);
+
+      if (editingTeacher) {
+        // Update existing
+        const updated: Teacher = {
+          ...editingTeacher,
+          name: formattedName,
+          username: formData.username.trim().toLowerCase(),
+          password: formData.password.trim(),
+          role: formData.role,
+          subject: formData.subject.trim(),
+          majorDepartment: formData.majorDepartment.trim() || '',
+          phone: formData.phone.trim() || '',
+          email: formData.email.trim() || '',
+          status: formData.status || 'active',
+          avatar: finalAvatar || '',
+          title: formData.title || 'مهندس'
+        };
+        await onUpdateTeacher(updated);
+        setEditingTeacher(null);
+      } else {
+        // Create new
+        const newTeacher: Teacher = {
+          id: `t-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+          name: formattedName,
+          username: formData.username.trim().toLowerCase(),
+          password: formData.password.trim(),
+          role: formData.role,
+          subject: formData.subject.trim(),
+          majorDepartment: formData.majorDepartment.trim() || '',
+          phone: formData.phone.trim() || '',
+          email: formData.email.trim() || '',
+          status: formData.status || 'active',
+          avatar: finalAvatar || '',
+          title: formData.title || 'مهندس',
+          createdAt: new Date().toISOString().split('T')[0]
+        };
+        await onAddTeacher(newTeacher);
+        setIsAddModalOpen(false);
+      }
+    } catch (err: any) {
+      console.error('Failed to persist teacher:', err);
+      setFormError('حدث خطأ أثناء حفظ بيانات المعلم سحابياً: ' + (err?.message || 'يرجى إعادة المحاولة'));
+    } finally {
+      setIsSavingTeacher(false);
     }
   };
 
@@ -1091,9 +1101,17 @@ export const AdminTeachersDashboard: React.FC<AdminTeachersDashboardProps> = ({
                 </button>
                 <button
                   type="submit"
-                  className="px-6 py-2.5 bg-linear-to-r from-purple-700 to-indigo-600 hover:from-purple-800 hover:to-indigo-700 text-white rounded-xl font-black shadow-md transition-all hover:scale-105 active:scale-95"
+                  disabled={isSavingTeacher}
+                  className="px-6 py-2.5 bg-linear-to-r from-purple-700 to-indigo-600 hover:from-purple-800 hover:to-indigo-700 disabled:opacity-60 text-white rounded-xl font-black shadow-md transition-all hover:scale-105 active:scale-95 flex items-center gap-2 cursor-pointer"
                 >
-                  {editingTeacher ? 'حفظ التعديلات' : 'إضافة المعلم الآن'}
+                  {isSavingTeacher ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin text-white" />
+                      <span>جاري الحفظ والمزامنة السحابية...</span>
+                    </>
+                  ) : (
+                    <span>{editingTeacher ? 'حفظ التعديلات' : 'إضافة المعلم الآن'}</span>
+                  )}
                 </button>
               </div>
             </form>

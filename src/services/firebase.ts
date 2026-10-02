@@ -1,6 +1,7 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import {
   getFirestore,
+  initializeFirestore,
   collection,
   doc,
   setDoc,
@@ -26,14 +27,44 @@ const firebaseConfig = {
 // Initialize Firebase App
 export const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 
-// Initialize Firestore (supporting named database if present)
-export const db = firebaseConfig.firestoreDatabaseId
-  ? getFirestore(app, firebaseConfig.firestoreDatabaseId)
-  : getFirestore(app);
+// Initialize Firestore safely with ignoreUndefinedProperties: true
+export const db = (() => {
+  try {
+    return initializeFirestore(app, {
+      ignoreUndefinedProperties: true
+    }, firebaseConfig.firestoreDatabaseId);
+  } catch {
+    return firebaseConfig.firestoreDatabaseId
+      ? getFirestore(app, firebaseConfig.firestoreDatabaseId)
+      : getFirestore(app);
+  }
+})();
 
 export const STUDENTS_COLLECTION = 'students';
 export const TEACHERS_COLLECTION = 'teachers';
 export const MISSIONS_COLLECTION = 'missions';
+
+/**
+ * Deep-clean an object for Cloud Firestore to ensure no undefined keys exist
+ */
+export function sanitizeForFirestore<T>(data: T): T {
+  if (data === null || data === undefined) {
+    return data;
+  }
+  if (Array.isArray(data)) {
+    return data.map(sanitizeForFirestore) as unknown as T;
+  }
+  if (typeof data === 'object') {
+    const cleaned: Record<string, any> = {};
+    for (const [key, value] of Object.entries(data)) {
+      if (value !== undefined) {
+        cleaned[key] = sanitizeForFirestore(value);
+      }
+    }
+    return cleaned as T;
+  }
+  return data;
+}
 
 /**
  * Real-time listener for students collection
@@ -131,8 +162,9 @@ export function subscribeToMissions(
  */
 export async function saveStudentToCloud(student: Student): Promise<void> {
   try {
-    const docRef = doc(db, STUDENTS_COLLECTION, student.id);
-    await setDoc(docRef, student, { merge: true });
+    const cleanStudent = sanitizeForFirestore(student);
+    const docRef = doc(db, STUDENTS_COLLECTION, cleanStudent.id);
+    await setDoc(docRef, cleanStudent, { merge: true });
   } catch (err) {
     console.error('Error saving student to cloud:', err);
     throw err;
@@ -146,8 +178,9 @@ export async function syncAllStudentsToCloud(students: Student[]): Promise<void>
   try {
     const batch = writeBatch(db);
     students.forEach((student) => {
-      const docRef = doc(db, STUDENTS_COLLECTION, student.id);
-      batch.set(docRef, student, { merge: true });
+      const cleanStudent = sanitizeForFirestore(student);
+      const docRef = doc(db, STUDENTS_COLLECTION, cleanStudent.id);
+      batch.set(docRef, cleanStudent, { merge: true });
     });
     await batch.commit();
   } catch (err) {
@@ -170,12 +203,35 @@ export async function deleteStudentFromCloud(studentId: string): Promise<void> {
 }
 
 /**
+ * Helper to ensure a teacher object is clean and has valid string fallbacks for all fields
+ */
+function prepareTeacherPayload(teacher: Teacher): Teacher {
+  return sanitizeForFirestore({
+    id: teacher.id,
+    name: teacher.name || '',
+    username: (teacher.username || '').toLowerCase().trim(),
+    password: (teacher.password || '').trim(),
+    role: teacher.role || 'teacher',
+    subject: teacher.subject || '',
+    majorDepartment: teacher.majorDepartment || '',
+    phone: teacher.phone || '',
+    email: teacher.email || '',
+    status: teacher.status || 'active',
+    avatar: teacher.avatar || '',
+    title: teacher.title || 'مهندس',
+    createdAt: teacher.createdAt || new Date().toISOString().split('T')[0]
+  });
+}
+
+/**
  * Save or update a teacher in Cloud Firestore
  */
 export async function saveTeacherToCloud(teacher: Teacher): Promise<void> {
   try {
-    const docRef = doc(db, TEACHERS_COLLECTION, teacher.id);
-    await setDoc(docRef, teacher, { merge: true });
+    const cleanTeacher = prepareTeacherPayload(teacher);
+    const docRef = doc(db, TEACHERS_COLLECTION, cleanTeacher.id);
+    await setDoc(docRef, cleanTeacher, { merge: true });
+    console.log(`[Firestore] Teacher persisted successfully: ${cleanTeacher.name} (${cleanTeacher.username})`);
   } catch (err) {
     console.error('Error saving teacher to cloud:', err);
     throw err;
@@ -189,10 +245,12 @@ export async function syncAllTeachersToCloud(teachers: Teacher[]): Promise<void>
   try {
     const batch = writeBatch(db);
     teachers.forEach((teacher) => {
-      const docRef = doc(db, TEACHERS_COLLECTION, teacher.id);
-      batch.set(docRef, teacher, { merge: true });
+      const cleanTeacher = prepareTeacherPayload(teacher);
+      const docRef = doc(db, TEACHERS_COLLECTION, cleanTeacher.id);
+      batch.set(docRef, cleanTeacher, { merge: true });
     });
     await batch.commit();
+    console.log(`[Firestore] Batch saved ${teachers.length} teachers successfully.`);
   } catch (err) {
     console.error('Error batch syncing teachers to cloud:', err);
     throw err;
@@ -206,6 +264,7 @@ export async function deleteTeacherFromCloud(teacherId: string): Promise<void> {
   try {
     const docRef = doc(db, TEACHERS_COLLECTION, teacherId);
     await deleteDoc(docRef);
+    console.log(`[Firestore] Teacher deleted successfully: ${teacherId}`);
   } catch (err) {
     console.error('Error deleting teacher from cloud:', err);
     throw err;
@@ -217,8 +276,9 @@ export async function deleteTeacherFromCloud(teacherId: string): Promise<void> {
  */
 export async function saveMissionToCloud(mission: SecretMission): Promise<void> {
   try {
-    const docRef = doc(db, MISSIONS_COLLECTION, mission.id);
-    await setDoc(docRef, mission, { merge: true });
+    const cleanMission = sanitizeForFirestore(mission);
+    const docRef = doc(db, MISSIONS_COLLECTION, cleanMission.id);
+    await setDoc(docRef, cleanMission, { merge: true });
   } catch (err) {
     console.error('Error saving mission to cloud:', err);
     throw err;
@@ -232,13 +292,50 @@ export async function syncAllMissionsToCloud(missions: SecretMission[]): Promise
   try {
     const batch = writeBatch(db);
     missions.forEach((mission) => {
+      const cleanMission = sanitizeForFirestore(mission);
       const docRef = doc(db, MISSIONS_COLLECTION, mission.id);
-      batch.set(docRef, mission, { merge: true });
+      batch.set(docRef, cleanMission, { merge: true });
     });
     await batch.commit();
   } catch (err) {
     console.error('Error batch syncing missions to cloud:', err);
     throw err;
+  }
+}
+
+/**
+ * Fetch all teachers directly from Cloud Firestore (one-time fetch)
+ */
+export async function fetchTeachersFromCloud(): Promise<Teacher[]> {
+  try {
+    const colRef = collection(db, TEACHERS_COLLECTION);
+    const snap = await getDocs(colRef);
+    const list: Teacher[] = [];
+    snap.forEach((d) => {
+      list.push(d.data() as Teacher);
+    });
+    return list;
+  } catch (err) {
+    console.error('Error fetching teachers from cloud:', err);
+    return [];
+  }
+}
+
+/**
+ * Fetch all students directly from Cloud Firestore (one-time fetch)
+ */
+export async function fetchStudentsFromCloud(): Promise<Student[]> {
+  try {
+    const colRef = collection(db, STUDENTS_COLLECTION);
+    const snap = await getDocs(colRef);
+    const list: Student[] = [];
+    snap.forEach((d) => {
+      list.push(d.data() as Student);
+    });
+    return list;
+  } catch (err) {
+    console.error('Error fetching students from cloud:', err);
+    return [];
   }
 }
 
