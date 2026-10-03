@@ -21,18 +21,29 @@ import { exportStudentsRoster } from '../utils/exportUtils';
 
 interface LeaderboardViewProps {
   students: Student[];
-  onOpenProfile: (student: Student) => void;
-  onOpenCertificate: (student: Student) => void;
+  availableGrades?: string[];
+  onOpenProfile?: (student: Student) => void;
+  onOpenCertificate?: (student: Student) => void;
+  onSelectStudent?: (student: Student) => void;
 }
 
 export const LeaderboardView: React.FC<LeaderboardViewProps> = ({
   students,
+  availableGrades,
   onOpenProfile,
-  onOpenCertificate
+  onOpenCertificate,
+  onSelectStudent
 }) => {
   const [selectedMajor, setSelectedMajor] = useState<string>('all');
   const [selectedGrade, setSelectedGrade] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
+
+  const handleOpenStudent = (s: Student) => {
+    if (onOpenProfile) onOpenProfile(s);
+    else if (onSelectStudent) onSelectStudent(s);
+  };
+
+  const gradesToDisplay = availableGrades && availableGrades.length > 0 ? availableGrades : SCHOOL_INFO.grades;
 
   // Sorted and filtered students
   const filteredRankedStudents = useMemo(() => {
@@ -123,8 +134,12 @@ export const LeaderboardView: React.FC<LeaderboardViewProps> = ({
               onChange={(e) => setSelectedGrade(e.target.value)}
               className="w-full px-3 py-2.5 text-xs border border-slate-200 rounded-2xl focus:outline-hidden focus:ring-2 focus:ring-purple-500 bg-white"
             >
-              <option value="all">كافة الصفوف الدراسية</option>
-              {SCHOOL_INFO.grades.map((g) => (
+              <option value="all">
+                {availableGrades && availableGrades.length < 18
+                  ? `كافة الفصول المسندة (${gradesToDisplay.length} فصول)`
+                  : 'كافة الصفوف الدراسية'}
+              </option>
+              {gradesToDisplay.map((g) => (
                 <option key={g} value={g}>
                   {g}
                 </option>
@@ -174,13 +189,13 @@ export const LeaderboardView: React.FC<LeaderboardViewProps> = ({
 
               <div className="flex items-center gap-2 w-full mt-1">
                 <button
-                  onClick={() => onOpenProfile(topThree[1])}
+                  onClick={() => handleOpenStudent(topThree[1])}
                   className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold rounded-xl transition-colors"
                 >
                   البروفايل
                 </button>
                 <button
-                  onClick={() => onOpenCertificate(topThree[1])}
+                  onClick={() => onOpenCertificate && onOpenCertificate(topThree[1])}
                   className="flex-1 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 text-xs font-black rounded-xl transition-colors flex items-center justify-center gap-1"
                 >
                   <Award className="w-3.5 h-3.5" />
@@ -232,13 +247,13 @@ export const LeaderboardView: React.FC<LeaderboardViewProps> = ({
 
               <div className="flex items-center gap-2 w-full">
                 <button
-                  onClick={() => onOpenProfile(topThree[0])}
+                  onClick={() => handleOpenStudent(topThree[0])}
                   className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold rounded-xl transition-colors"
                 >
                   عرض الملف الكامل
                 </button>
                 <button
-                  onClick={() => onOpenCertificate(topThree[0])}
+                  onClick={() => onOpenCertificate && onOpenCertificate(topThree[0])}
                   className="flex-1 py-2.5 bg-linear-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-950 text-xs font-black rounded-xl shadow-md transition-all hover:scale-105 active:scale-95 flex items-center justify-center gap-1.5"
                 >
                   <Award className="w-4 h-4" />
@@ -285,13 +300,13 @@ export const LeaderboardView: React.FC<LeaderboardViewProps> = ({
 
               <div className="flex items-center gap-2 w-full mt-1">
                 <button
-                  onClick={() => onOpenProfile(topThree[2])}
+                  onClick={() => handleOpenStudent(topThree[2])}
                   className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold rounded-xl transition-colors"
                 >
                   البروفايل
                 </button>
                 <button
-                  onClick={() => onOpenCertificate(topThree[2])}
+                  onClick={() => onOpenCertificate && onOpenCertificate(topThree[2])}
                   className="flex-1 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 text-xs font-black rounded-xl transition-colors flex items-center justify-center gap-1"
                 >
                   <Award className="w-3.5 h-3.5" />
@@ -345,13 +360,13 @@ export const LeaderboardView: React.FC<LeaderboardViewProps> = ({
                     src={student.avatar}
                     alt={student.name}
                     className="w-12 h-12 rounded-2xl object-cover border border-slate-200 cursor-pointer shrink-0"
-                    onClick={() => onOpenProfile(student)}
+                    onClick={() => handleOpenStudent(student)}
                   />
 
                   <div className="space-y-0.5">
                     <div className="flex items-center gap-2">
                       <button
-                        onClick={() => onOpenProfile(student)}
+                        onClick={() => handleOpenStudent(student)}
                         className="font-black text-sm text-slate-900 hover:text-purple-700 text-right transition-colors"
                       >
                         {student.name}
@@ -384,7 +399,7 @@ export const LeaderboardView: React.FC<LeaderboardViewProps> = ({
 
                   <div className="flex items-center gap-2">
                     <button
-                      onClick={() => onOpenCertificate(student)}
+                      onClick={() => onOpenCertificate && onOpenCertificate(student)}
                       className="flex items-center gap-1 px-3 py-2 bg-amber-50 hover:bg-amber-100 text-amber-900 text-xs font-black rounded-xl border border-amber-200 transition-colors"
                       title="استخراج شهادة تميز"
                     >
@@ -393,7 +408,7 @@ export const LeaderboardView: React.FC<LeaderboardViewProps> = ({
                     </button>
 
                     <button
-                      onClick={() => onOpenProfile(student)}
+                      onClick={() => handleOpenStudent(student)}
                       className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold rounded-xl transition-colors"
                     >
                       الملف

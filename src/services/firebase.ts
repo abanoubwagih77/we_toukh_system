@@ -219,7 +219,14 @@ function prepareTeacherPayload(teacher: Teacher): Teacher {
     status: teacher.status || 'active',
     avatar: teacher.avatar || '',
     title: teacher.title || 'مهندس',
-    createdAt: teacher.createdAt || new Date().toISOString().split('T')[0]
+    assignedGrades: Array.isArray(teacher.assignedGrades) ? teacher.assignedGrades : [],
+    createdAt: teacher.createdAt || new Date().toISOString().split('T')[0],
+    mustChangePassword: teacher.mustChangePassword === true,
+    hasLoggedIn: teacher.hasLoggedIn === true,
+    firstLoginAt: teacher.firstLoginAt || '',
+    lastLoginAt: teacher.lastLoginAt || '',
+    loginCount: typeof teacher.loginCount === 'number' ? teacher.loginCount : (teacher.hasLoggedIn ? 1 : 0),
+    passwordChangedAt: teacher.passwordChangedAt || ''
   });
 }
 

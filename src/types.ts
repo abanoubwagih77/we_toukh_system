@@ -62,11 +62,18 @@ export interface Teacher {
   majorDepartment?: string;
   avatar: string;
   role: 'teacher' | 'supervisor' | 'admin';
+  assignedGrades?: string[]; // Specific grades/classes assigned to this teacher (e.g. ['الصف الثاني - B1', 'الصف الثاني - B2'])
   phone?: string;
   email?: string;
   status?: 'active' | 'suspended';
   title?: string;
   createdAt?: string;
+  mustChangePassword?: boolean; // Set to true for new accounts or resets so teacher sets their own private password on first login
+  hasLoggedIn?: boolean; // false until the teacher logs into their account
+  firstLoginAt?: string; // ISO date string of first successful login
+  lastLoginAt?: string; // ISO date string of most recent login
+  loginCount?: number; // Total number of logins
+  passwordChangedAt?: string; // ISO date string when teacher changed password
 }
 
 export interface SecretMission {

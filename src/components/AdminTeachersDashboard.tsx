@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { Teacher, Student } from '../types';
-import { SCHOOL_INFO } from '../data/mockData';
+import { SCHOOL_INFO, SCHOOL_STAGES } from '../data/mockData';
 import {
   ShieldCheck,
   UserPlus,
@@ -32,10 +32,19 @@ import {
   Check,
   FileUp,
   Loader2,
-  HardDrive
+  HardDrive,
+  Layers,
+  School,
+  CheckSquare,
+  Square,
+  FileSpreadsheet,
+  Copy,
+  Clock,
+  UserCheck,
+  UserX
 } from 'lucide-react';
 import { compressImageFile } from '../utils/imageUtils';
-import { exportSystemDatabaseJSON } from '../utils/exportUtils';
+import { exportSystemDatabaseJSON, exportTeachersAccounts } from '../utils/exportUtils';
 import { TeacherAvatar } from './TeacherAvatar';
 
 interface AdminTeachersDashboardProps {
@@ -68,6 +77,14 @@ export const AdminTeachersDashboard: React.FC<AdminTeachersDashboardProps> = ({
   const [roleFilter, setRoleFilter] = useState<string>('all');
   const [subjectFilter, setSubjectFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [loginFilter, setLoginFilter] = useState<'all' | 'unopened' | 'opened' | 'changed_pw'>('all');
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  // One-time password reset modal state
+  const [resettingTeacher, setResettingTeacher] = useState<Teacher | null>(null);
+  const [tempPassword, setTempPassword] = useState<string>('123456');
+  const [isResetting, setIsResetting] = useState<boolean>(false);
+
   const [isCompressingTeacherPhoto, setIsCompressingTeacherPhoto] = useState<boolean>(false);
   const [isSavingTeacher, setIsSavingTeacher] = useState<boolean>(false);
   const [backupSuccessMessage, setBackupSuccessMessage] = useState<string>('');
@@ -79,6 +96,76 @@ export const AdminTeachersDashboard: React.FC<AdminTeachersDashboardProps> = ({
   const [editingTeacher, setEditingTeacher] = useState<Teacher | null>(null);
   const [deletingTeacher, setDeletingTeacher] = useState<Teacher | null>(null);
   const [showPasswords, setShowPasswords] = useState<Record<string, boolean>>({});
+
+  // Helper date formatter in Arabic
+  const formatFriendlyDate = (isoStr?: string) => {
+    if (!isoStr) return '';
+    try {
+      const d = new Date(isoStr);
+      if (isNaN(d.getTime())) return isoStr;
+      return d.toLocaleDateString('ar-EG', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    } catch {
+      return isoStr;
+    }
+  };
+
+  // Helper to copy teacher credentials to clipboard
+  const handleCopyCredentials = (teacher: Teacher) => {
+    const text = `بيانات تسجيل الدخول لمنظومة مدرسة WE:
+المعلم / المهندس: ${teacher.name}
+المادة / التخصص: ${teacher.subject}
+اسم المستخدم: ${teacher.username}
+كلمة المرور: ${teacher.password}
+حالة كلمة المرور: ${teacher.mustChangePassword ? 'مؤقتة لمرة واحدة (سيطلب منك النظام إنشاء كلمة سر خاصة بك عند أول دخول)' : 'خاصة ومحدثة'}
+رابط المنظومة: ${window.location.origin}`;
+
+    navigator.clipboard.writeText(text).then(() => {
+      setCopiedId(teacher.id);
+      setTimeout(() => setCopiedId(null), 2500);
+    }).catch(() => {
+      alert(`اسم المستخدم: ${teacher.username}\nكلمة المرور: ${teacher.password}`);
+    });
+  };
+
+  // Helper to confirm reset password to temporary OTP
+  const handleConfirmResetPassword = async () => {
+    if (!resettingTeacher) return;
+    const trimmed = tempPassword.trim();
+    if (!trimmed) {
+      alert('يرجى كتابة كلمة المرور المؤقتة');
+      return;
+    }
+    try {
+      setIsResetting(true);
+      const updated: Teacher = {
+        ...resettingTeacher,
+        password: trimmed,
+        mustChangePassword: true,
+        hasLoggedIn: false, // Reset open status as requested so admin knows when teacher logs in again with the new OTP
+        passwordChangedAt: ''
+      };
+      await onUpdateTeacher(updated);
+      setResettingTeacher(null);
+    } catch (err: any) {
+      alert('حدث خطأ أثناء إعادة تعيين كلمة المرور: ' + (err?.message || 'يرجى المحاولة'));
+    } finally {
+      setIsResetting(false);
+    }
+  };
+
+  // Summary counts for account login & open statuses
+  const openedAccountsCount = useMemo(() => teachers.filter((t) => t.hasLoggedIn).length, [teachers]);
+  const unopenedAccountsCount = useMemo(() => teachers.filter((t) => !t.hasLoggedIn).length, [teachers]);
+  const changedPwCount = useMemo(
+    () => teachers.filter((t) => t.hasLoggedIn && (t.passwordChangedAt || !t.mustChangePassword)).length,
+    [teachers]
+  );
 
   // Form State for Add / Edit
   const [formData, setFormData] = useState({
@@ -92,10 +179,13 @@ export const AdminTeachersDashboard: React.FC<AdminTeachersDashboardProps> = ({
     phone: '',
     email: '',
     status: 'active' as 'active' | 'suspended',
-    avatar: ''
+    avatar: '',
+    assignedGrades: [] as string[],
+    mustChangePassword: true as boolean
   });
 
   const [formError, setFormError] = useState<string>('');
+  const [activeStages, setActiveStages] = useState<string[]>([]);
 
   // Calculate teacher stats from student logs
   const teacherStats = useMemo(() => {
@@ -135,13 +225,23 @@ export const AdminTeachersDashboard: React.FC<AdminTeachersDashboardProps> = ({
       const matchSubject = subjectFilter === 'all' || t.subject === subjectFilter;
       const matchStatus = statusFilter === 'all' || (t.status || 'active') === statusFilter;
 
-      return matchSearch && matchRole && matchSubject && matchStatus;
+      let matchLogin = true;
+      if (loginFilter === 'unopened') {
+        matchLogin = !t.hasLoggedIn;
+      } else if (loginFilter === 'opened') {
+        matchLogin = t.hasLoggedIn === true;
+      } else if (loginFilter === 'changed_pw') {
+        matchLogin = Boolean(t.hasLoggedIn && (t.passwordChangedAt || !t.mustChangePassword));
+      }
+
+      return matchSearch && matchRole && matchSubject && matchStatus && matchLogin;
     });
-  }, [teachers, searchQuery, roleFilter, subjectFilter, statusFilter]);
+  }, [teachers, searchQuery, roleFilter, subjectFilter, statusFilter, loginFilter]);
 
   // Open Edit Modal with teacher data
   const handleStartEdit = (teacher: Teacher) => {
     setEditingTeacher(teacher);
+    const assigned = Array.isArray(teacher.assignedGrades) ? [...teacher.assignedGrades] : [];
     setFormData({
       title: teacher.title || 'مهندس',
       name: teacher.name,
@@ -156,8 +256,16 @@ export const AdminTeachersDashboard: React.FC<AdminTeachersDashboardProps> = ({
       avatar:
         teacher.avatar && !teacher.avatar.includes('photo-1472099645785-5658abf4ff4e')
           ? teacher.avatar
-          : ''
+          : '',
+      assignedGrades: assigned,
+      mustChangePassword: teacher.mustChangePassword === true
     });
+
+    // Detect which stages have assigned classes
+    const matchedStages = SCHOOL_STAGES.filter((stg) =>
+      stg.classes.some((cls) => assigned.includes(cls))
+    ).map((stg) => stg.id);
+    setActiveStages(matchedStages);
     setFormError('');
   };
 
@@ -175,8 +283,11 @@ export const AdminTeachersDashboard: React.FC<AdminTeachersDashboardProps> = ({
       phone: '',
       email: '',
       status: 'active',
-      avatar: ''
+      avatar: '',
+      assignedGrades: [],
+      mustChangePassword: true
     });
+    setActiveStages([]);
     setFormError('');
     setIsAddModalOpen(true);
   };
@@ -200,6 +311,12 @@ export const AdminTeachersDashboard: React.FC<AdminTeachersDashboardProps> = ({
     }
     if (!formData.subject.trim()) {
       setFormError('يرجى إدخال المادة أو التخصص الذي يدرسه');
+      return;
+    }
+
+    // Ensure non-admin teachers have at least one assigned class so they can access their students
+    if (formData.role !== 'admin' && (!formData.assignedGrades || formData.assignedGrades.length === 0)) {
+      setFormError('يرجى تحديد مرحلة دراسية وفصل واحد على الأقل للمدرس (مثلاً سنة ثانية: B1 و B2) ليتمكن من رؤية طلابه ورصد نقاطهم.');
       return;
     }
 
@@ -254,7 +371,9 @@ export const AdminTeachersDashboard: React.FC<AdminTeachersDashboardProps> = ({
           email: formData.email.trim() || '',
           status: formData.status || 'active',
           avatar: finalAvatar || '',
-          title: formData.title || 'مهندس'
+          title: formData.title || 'مهندس',
+          assignedGrades: formData.role === 'admin' ? [] : (formData.assignedGrades || []),
+          mustChangePassword: formData.mustChangePassword === true
         };
         await onUpdateTeacher(updated);
         setEditingTeacher(null);
@@ -273,7 +392,14 @@ export const AdminTeachersDashboard: React.FC<AdminTeachersDashboardProps> = ({
           status: formData.status || 'active',
           avatar: finalAvatar || '',
           title: formData.title || 'مهندس',
-          createdAt: new Date().toISOString().split('T')[0]
+          assignedGrades: formData.role === 'admin' ? [] : (formData.assignedGrades || []),
+          createdAt: new Date().toISOString().split('T')[0],
+          mustChangePassword: formData.mustChangePassword !== false,
+          hasLoggedIn: false,
+          loginCount: 0,
+          firstLoginAt: '',
+          lastLoginAt: '',
+          passwordChangedAt: ''
         };
         await onAddTeacher(newTeacher);
         setIsAddModalOpen(false);
@@ -415,30 +541,46 @@ export const AdminTeachersDashboard: React.FC<AdminTeachersDashboardProps> = ({
         </div>
 
         {/* Quick Stats Grid */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-6 pt-6 border-t border-white/10 relative z-10">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mt-6 pt-6 border-t border-white/10 relative z-10">
           <div className="bg-white/10 backdrop-blur-md rounded-2xl p-3 border border-white/10">
             <span className="text-[11px] text-purple-200 block font-bold">إجمالي الكادر التكنولوجي</span>
-            <span className="text-xl font-black text-white mt-1 block">{teachers.length} معلماً ومهندساً</span>
+            <span className="text-xl font-black text-white mt-1 block">{teachers.length} معلماً</span>
+          </div>
+
+          <div className="bg-white/10 backdrop-blur-md rounded-2xl p-3 border border-white/10">
+            <span className="text-[11px] text-emerald-200 block font-bold flex items-center gap-1">
+              <CheckCircle className="w-3 h-3 text-emerald-300" />
+              <span>حسابات تم فتحها</span>
+            </span>
+            <span className="text-xl font-black text-emerald-300 mt-1 block">
+              {openedAccountsCount} حساب
+            </span>
+          </div>
+
+          <div className="bg-white/10 backdrop-blur-md rounded-2xl p-3 border border-white/10">
+            <span className="text-[11px] text-amber-200 block font-bold flex items-center gap-1">
+              <Clock className="w-3 h-3 text-amber-300" />
+              <span>لم تفتح بعد (جديدة)</span>
+            </span>
+            <span className="text-xl font-black text-amber-300 mt-1 block">
+              {unopenedAccountsCount} حساب
+            </span>
+          </div>
+
+          <div className="bg-white/10 backdrop-blur-md rounded-2xl p-3 border border-white/10">
+            <span className="text-[11px] text-cyan-200 block font-bold flex items-center gap-1">
+              <KeyRound className="w-3 h-3 text-cyan-300" />
+              <span>كلمات سر خاصة مُحدثة</span>
+            </span>
+            <span className="text-xl font-black text-cyan-300 mt-1 block">
+              {changedPwCount} معلماً
+            </span>
           </div>
 
           <div className="bg-white/10 backdrop-blur-md rounded-2xl p-3 border border-white/10">
             <span className="text-[11px] text-purple-200 block font-bold">الحسابات النشطة</span>
-            <span className="text-xl font-black text-emerald-300 mt-1 block">
+            <span className="text-xl font-black text-white mt-1 block">
               {teachers.filter((t) => (t.status || 'active') === 'active').length} مفعل
-            </span>
-          </div>
-
-          <div className="bg-white/10 backdrop-blur-md rounded-2xl p-3 border border-white/10">
-            <span className="text-[11px] text-purple-200 block font-bold">مشرفو ومسؤولو النظام</span>
-            <span className="text-xl font-black text-amber-300 mt-1 block">
-              {teachers.filter((t) => t.role === 'admin' || t.role === 'supervisor').length} مشرف
-            </span>
-          </div>
-
-          <div className="bg-white/10 backdrop-blur-md rounded-2xl p-3 border border-white/10">
-            <span className="text-[11px] text-purple-200 block font-bold">المواد والمهام التدريسية</span>
-            <span className="text-xl font-black text-cyan-300 mt-1 block">
-              {new Set(teachers.map((t) => t.subject)).size} مادة
             </span>
           </div>
         </div>
@@ -485,6 +627,16 @@ export const AdminTeachersDashboard: React.FC<AdminTeachersDashboardProps> = ({
         </div>
 
         <div className="flex flex-wrap items-center gap-2 w-full md:w-auto justify-end">
+          <button
+            type="button"
+            onClick={() => exportTeachersAccounts(teachers)}
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black rounded-xl shadow-xs transition-all cursor-pointer hover:scale-105 active:scale-95"
+            title="تصدير كشف كامل ببيانات المعلمين والمهندسين وأسماء المستخدمين وكلمات المرور والفصول في ملف إكسيل"
+          >
+            <FileSpreadsheet className="w-3.5 h-3.5 text-white" />
+            <span>تصدير حسابات المعلمين (Excel)</span>
+          </button>
+
           {students.length === 0 && onSeedSampleStudents && (
             <button
               type="button"
@@ -526,7 +678,7 @@ export const AdminTeachersDashboard: React.FC<AdminTeachersDashboardProps> = ({
       <div className="bg-white p-4 rounded-3xl border border-slate-200 shadow-xs space-y-3">
         <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
           {/* Search */}
-          <div className="sm:col-span-5 relative">
+          <div className="sm:col-span-4 relative">
             <input
               type="text"
               placeholder="ابحث باسم المعلم، اسم المستخدم، المادة، أو رقم الهاتف..."
@@ -535,6 +687,20 @@ export const AdminTeachersDashboard: React.FC<AdminTeachersDashboardProps> = ({
               className="w-full px-4 py-2.5 pr-10 text-xs border border-slate-200 rounded-2xl focus:outline-hidden focus:ring-2 focus:ring-purple-500 bg-slate-50/50"
             />
             <Search className="w-4 h-4 text-slate-400 absolute right-3.5 top-3" />
+          </div>
+
+          {/* Account Login / Open Status Filter */}
+          <div className="sm:col-span-2">
+            <select
+              value={loginFilter}
+              onChange={(e) => setLoginFilter(e.target.value as any)}
+              className="w-full px-3 py-2.5 text-xs border border-slate-200 rounded-2xl focus:outline-hidden focus:ring-2 focus:ring-purple-500 bg-white font-bold"
+            >
+              <option value="all">كافة حالات فتح الحساب</option>
+              <option value="unopened">⏳ لم يتم فتحه بعد ({unopenedAccountsCount})</option>
+              <option value="changed_pw">✅ تم الفتح وتغيير كلمة السر ({changedPwCount})</option>
+              <option value="opened">🔓 تم الفتح وتسجيل الدخول ({openedAccountsCount})</option>
+            </select>
           </div>
 
           {/* Role Filter */}
@@ -552,13 +718,13 @@ export const AdminTeachersDashboard: React.FC<AdminTeachersDashboardProps> = ({
           </div>
 
           {/* Subject Filter */}
-          <div className="sm:col-span-3">
+          <div className="sm:col-span-2">
             <select
               value={subjectFilter}
               onChange={(e) => setSubjectFilter(e.target.value)}
               className="w-full px-3 py-2.5 text-xs border border-slate-200 rounded-2xl focus:outline-hidden focus:ring-2 focus:ring-purple-500 bg-white"
             >
-              <option value="all">كافة المواد والتخصصات</option>
+              <option value="all">كافة المواد</option>
               {Array.from(new Set(teachers.map((t) => t.subject).filter(Boolean))).map((sub) => (
                 <option key={sub} value={sub}>
                   {sub}
@@ -586,13 +752,14 @@ export const AdminTeachersDashboard: React.FC<AdminTeachersDashboardProps> = ({
           <span>
             عرض <strong>{filteredTeachers.length}</strong> من أصل {teachers.length} معلماً
           </span>
-          {(searchQuery || roleFilter !== 'all' || subjectFilter !== 'all' || statusFilter !== 'all') && (
+          {(searchQuery || roleFilter !== 'all' || subjectFilter !== 'all' || statusFilter !== 'all' || loginFilter !== 'all') && (
             <button
               onClick={() => {
                 setSearchQuery('');
                 setRoleFilter('all');
                 setSubjectFilter('all');
                 setStatusFilter('all');
+                setLoginFilter('all');
               }}
               className="text-purple-700 hover:text-purple-900 font-bold"
             >
@@ -693,7 +860,28 @@ export const AdminTeachersDashboard: React.FC<AdminTeachersDashboardProps> = ({
                 </div>
 
                 {/* Account Credentials Box */}
-                <div className="bg-slate-50 rounded-2xl p-3 border border-slate-200 text-xs space-y-2">
+                <div className="bg-slate-50/90 rounded-2xl p-3 border border-slate-200 text-xs space-y-2">
+                  <div className="flex items-center justify-between pb-1 border-b border-slate-200/60">
+                    <span className="text-[11px] font-bold text-slate-700 flex items-center gap-1">
+                      <KeyRound className="w-3.5 h-3.5 text-purple-700" />
+                      <span>بيانات تسجيل الدخول</span>
+                    </span>
+
+                    <button
+                      type="button"
+                      onClick={() => handleCopyCredentials(teacher)}
+                      className={`px-2 py-0.5 rounded-lg text-[10px] font-bold flex items-center gap-1 transition-all ${
+                        copiedId === teacher.id
+                          ? 'bg-emerald-100 text-emerald-800'
+                          : 'bg-white hover:bg-purple-100 text-purple-800 border border-purple-200 shadow-2xs'
+                      }`}
+                      title="نسخ اسم المستخدم وكلمة المرور ورابط المنظومة"
+                    >
+                      <Copy className="w-3 h-3" />
+                      <span>{copiedId === teacher.id ? 'تم النسخ ✓' : 'نسخ البيانات'}</span>
+                    </button>
+                  </div>
+
                   <div className="flex items-center justify-between">
                     <span className="text-slate-500 text-[11px]">اسم المستخدم:</span>
                     <span className="font-mono font-bold text-slate-800 bg-white px-2 py-0.5 rounded-md border border-slate-200">
@@ -712,12 +900,42 @@ export const AdminTeachersDashboard: React.FC<AdminTeachersDashboardProps> = ({
                       </span>
                       <button
                         onClick={() => togglePasswordVisibility(teacher.id)}
-                        className="p-1 text-slate-400 hover:text-slate-700 rounded-md"
+                        className="p-1 text-slate-400 hover:text-slate-700 rounded-md cursor-pointer"
                         title={isPasswordVisible ? 'إخفاء كلمة المرور' : 'إظهار كلمة المرور'}
                       >
                         {isPasswordVisible ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
                       </button>
                     </div>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-1 border-t border-slate-200/70 text-[10px]">
+                    <span className="text-slate-500 font-bold">نوع كلمة المرور:</span>
+                    {teacher.mustChangePassword ? (
+                      <span className="px-2 py-0.5 rounded-md bg-amber-100 text-amber-900 border border-amber-300 font-black flex items-center gap-1">
+                        <KeyRound className="w-3 h-3 text-amber-600" />
+                        <span>مؤقتة لمرة واحدة (يلزم تغييرها)</span>
+                      </span>
+                    ) : (
+                      <span className="px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-900 border border-emerald-300 font-black flex items-center gap-1">
+                        <CheckCircle className="w-3 h-3 text-emerald-600" />
+                        <span>خاصة (محدثة من المعلم) ✓</span>
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Reset OTP quick button */}
+                  <div className="pt-1 border-t border-slate-200/70 flex items-center justify-end">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setResettingTeacher(teacher);
+                        setTempPassword('123456');
+                      }}
+                      className="text-[10px] text-purple-700 hover:text-purple-900 font-bold hover:underline flex items-center gap-1 cursor-pointer"
+                    >
+                      <RefreshCw className="w-2.5 h-2.5" />
+                      <span>إعادة ضبط لكلمة سر مؤقتة لمرة واحدة (OTP)</span>
+                    </button>
                   </div>
 
                   {(teacher.phone || teacher.email) && (
@@ -733,6 +951,125 @@ export const AdminTeachersDashboard: React.FC<AdminTeachersDashboardProps> = ({
                           {teacher.email}
                         </span>
                       )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Account Open & Usage Status Box */}
+                {!teacher.hasLoggedIn ? (
+                  <div className="bg-amber-50/90 rounded-2xl p-3 border border-amber-200 text-xs space-y-1.5 shadow-2xs">
+                    <div className="flex items-center justify-between">
+                      <span className="font-extrabold text-[11px] text-amber-950 flex items-center gap-1.5">
+                        <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse inline-block"></span>
+                        <span>لم يتم فتحه بعد (حساب جديد)</span>
+                      </span>
+                      <span className="px-2 py-0.5 rounded-md bg-amber-200/90 text-amber-950 font-black text-[10px]">
+                        لم يسجل الدخول قط ⏳
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-amber-900 leading-relaxed font-medium">
+                      المعلم لم يقم بفتح الحساب حتى الآن. كلمة المرور في الأعلى مؤقتة لمرة واحدة، وفور تسجيل دخوله سيطلب منه النظام إلزامياً إنشاء كلمة سر جديدة خاصة به.
+                    </p>
+                  </div>
+                ) : teacher.passwordChangedAt || !teacher.mustChangePassword ? (
+                  <div className="bg-emerald-50/90 rounded-2xl p-3 border border-emerald-200 text-xs space-y-2 shadow-2xs">
+                    <div className="flex items-center justify-between">
+                      <span className="font-extrabold text-[11px] text-emerald-950 flex items-center gap-1.5">
+                        <CheckCircle className="w-4 h-4 text-emerald-600" />
+                        <span>تم فتح الحساب وتعيين كلمة سر خاصة ✅</span>
+                      </span>
+                      <span className="px-2 py-0.5 rounded-md bg-emerald-200/90 text-emerald-950 font-black text-[10px] font-mono">
+                        دخل {teacher.loginCount || 1} مرة
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 text-[10px] text-emerald-900 pt-1 border-t border-emerald-200/70">
+                      <div>
+                        <span className="text-emerald-700/80 block">أول تسجيل دخول:</span>
+                        <span className="font-bold">{formatFriendlyDate(teacher.firstLoginAt) || 'مكتمل'}</span>
+                      </div>
+                      <div>
+                        <span className="text-emerald-700/80 block">آخر نشاط / دخول:</span>
+                        <span className="font-bold">{formatFriendlyDate(teacher.lastLoginAt) || 'نشط'}</span>
+                      </div>
+                    </div>
+
+                    {teacher.passwordChangedAt && (
+                      <p className="text-[10px] text-emerald-800 leading-tight">
+                        🔑 تم تغيير كلمة السر بتاريخ: <strong>{formatFriendlyDate(teacher.passwordChangedAt)}</strong> (مسجلة لديك بالأعلى كأدمن).
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <div className="bg-blue-50/90 rounded-2xl p-3 border border-blue-200 text-xs space-y-1.5 shadow-2xs">
+                    <div className="flex items-center justify-between">
+                      <span className="font-extrabold text-[11px] text-blue-950 flex items-center gap-1.5">
+                        <LogIn className="w-4 h-4 text-blue-600" />
+                        <span>تم فتح الحساب وتسجيل الدخول</span>
+                      </span>
+                      <span className="px-2 py-0.5 rounded-md bg-blue-200/90 text-blue-950 font-black text-[10px] font-mono">
+                        دخل {teacher.loginCount || 1} مرة
+                      </span>
+                    </div>
+
+                    <div className="text-[10px] text-blue-900 pt-0.5">
+                      آخر تسجيل دخول: <strong>{formatFriendlyDate(teacher.lastLoginAt)}</strong>
+                      <span className="block text-blue-700 mt-0.5">كلمة المرور مازالت مؤقتة.</span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Assigned Classes Scope Box */}
+                <div className="bg-purple-50/60 rounded-2xl p-2.5 border border-purple-100 text-xs space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-600 text-[11px] font-bold flex items-center gap-1">
+                      <Layers className="w-3.5 h-3.5 text-purple-600" />
+                      <span>صلاحيات الفصول:</span>
+                    </span>
+                    {teacher.role === 'admin' ? (
+                      <span className="px-2 py-0.5 rounded-full bg-purple-100 text-purple-900 font-extrabold text-[10px]">
+                        👑 وصول إداري شامل (18 فصلاً)
+                      </span>
+                    ) : teacher.assignedGrades && teacher.assignedGrades.length > 0 ? (
+                      <span className="px-2 py-0.5 rounded-full bg-purple-200/80 text-purple-950 font-extrabold text-[10px] font-mono">
+                        {teacher.assignedGrades.length} فصول مسندة
+                      </span>
+                    ) : (
+                      <span className="px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 font-extrabold text-[10px] flex items-center gap-1">
+                        <AlertTriangle className="w-3 h-3 text-rose-600" />
+                        <span>لم تسند فصول</span>
+                      </span>
+                    )}
+                  </div>
+
+                  {teacher.role !== 'admin' && teacher.assignedGrades && teacher.assignedGrades.length > 0 ? (
+                    <div className="flex flex-wrap gap-1 pt-0.5">
+                      {teacher.assignedGrades.map((g) => {
+                        const short = g.replace('الصف الأول - ', '1-')
+                                       .replace('الصف الثاني - ', '2-')
+                                       .replace('الصف الثالث - ', '3-');
+                        return (
+                          <span
+                            key={g}
+                            className="px-1.5 py-0.5 rounded-md bg-white border border-purple-200 text-purple-900 font-black text-[10px] font-mono shadow-2xs"
+                          >
+                            {short}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  ) : teacher.role !== 'admin' && (
+                    <div className="flex items-center justify-between pt-1">
+                      <p className="text-[10px] text-rose-600 font-bold">
+                        لن تظهر أي بيانات طلاب لهذا المعلم حتى تسند له فصولاً.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => handleStartEdit(teacher)}
+                        className="text-[10px] font-black text-purple-700 hover:text-purple-900 underline cursor-pointer"
+                      >
+                        إسناد فصول الآن
+                      </button>
                     </div>
                   )}
                 </div>
@@ -761,6 +1098,19 @@ export const AdminTeachersDashboard: React.FC<AdminTeachersDashboardProps> = ({
                     >
                       <Edit2 className="w-3.5 h-3.5" />
                       <span>تعديل</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setResettingTeacher(teacher);
+                        setTempPassword('123456');
+                      }}
+                      className="px-2.5 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 text-xs font-bold transition-colors flex items-center gap-1"
+                      title="تعيين كلمة مرور مؤقتة لمرة واحدة"
+                    >
+                      <KeyRound className="w-3.5 h-3.5 text-amber-700" />
+                      <span className="hidden sm:inline">كلمة سر مؤقتة</span>
                     </button>
 
                     <button
@@ -815,6 +1165,82 @@ export const AdminTeachersDashboard: React.FC<AdminTeachersDashboardProps> = ({
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* MODAL: RESET TO ONE-TIME PASSWORD */}
+      {resettingTeacher && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-xs">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4 animate-in fade-in zoom-in-95 duration-200" dir="rtl">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center border border-amber-200">
+                  <KeyRound className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="font-extrabold text-sm text-slate-900">تعيين كلمة مرور مؤقتة (One-Time Password)</h4>
+                  <p className="text-[11px] text-purple-700 font-bold">{resettingTeacher.name} ({resettingTeacher.username})</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setResettingTeacher(null)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-3 bg-amber-50 rounded-2xl border border-amber-200 text-xs text-amber-950 leading-relaxed space-y-1">
+              <span className="font-black text-amber-900 block">كيف تعمل كلمة المرور لمرة واحدة؟</span>
+              <p className="text-[11px] text-amber-800">
+                سيتم حفظ كلمة المرور المؤقتة التي تدخلها أدناه. فور قيام المعلم بتسجيل الدخول بها لأول مرة، سيطلب منه النظام إلزامياً إنشاء كلمة مرور جديدة وسرية لنفسه، وستظهر كلمته الجديدة فورياً عندك في لوحة تحكم الأدمن وفي ملف الإكسيل.
+              </p>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="block text-xs font-bold text-slate-700">
+                كلمة المرور المؤقتة الجديدة:
+              </label>
+              <div className="relative">
+                <input
+                  type="text"
+                  required
+                  value={tempPassword}
+                  onChange={(e) => setTempPassword(e.target.value)}
+                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl font-mono text-left focus:ring-2 focus:ring-purple-500 pr-24"
+                  dir="ltr"
+                  placeholder="مثال: 123456"
+                />
+                <button
+                  type="button"
+                  onClick={() => setTempPassword(Math.floor(100000 + Math.random() * 900000).toString())}
+                  className="absolute right-2 top-1.5 px-2 py-1 text-[10px] bg-purple-100 hover:bg-purple-200 text-purple-900 font-bold rounded-lg cursor-pointer"
+                >
+                  توليد 6 أرقام
+                </button>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setResettingTeacher(null)}
+                className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl cursor-pointer"
+              >
+                إلغاء
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmResetPassword}
+                disabled={isResetting}
+                className="px-4 py-2 text-xs font-bold bg-amber-400 hover:bg-amber-500 text-slate-950 rounded-xl flex items-center gap-1.5 shadow-xs cursor-pointer"
+              >
+                {isResetting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                <span>حفظ وإلزام بالتغيير فور الدخول</span>
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -931,6 +1357,57 @@ export const AdminTeachersDashboard: React.FC<AdminTeachersDashboardProps> = ({
                 </div>
               </div>
 
+              {/* Teacher Account Live Status Info (if editing) */}
+              {editingTeacher && (
+                <div className={`p-3 rounded-2xl border text-xs flex items-center justify-between ${
+                  editingTeacher.hasLoggedIn ? 'bg-emerald-50 border-emerald-200 text-emerald-950' : 'bg-amber-50 border-amber-200 text-amber-950'
+                }`}>
+                  <div className="flex items-center gap-2">
+                    {editingTeacher.hasLoggedIn ? (
+                      <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+                    ) : (
+                      <Clock className="w-4 h-4 text-amber-600 shrink-0" />
+                    )}
+                    <div>
+                      <span className="font-black block">
+                        {editingTeacher.hasLoggedIn ? 'الحساب تم فتحه وتسجيل الدخول به بنجاح' : 'هذا الحساب لم يتم فتحه بعد من قِبل المعلم'}
+                      </span>
+                      {editingTeacher.hasLoggedIn && editingTeacher.lastLoginAt && (
+                        <span className="text-[10px] text-emerald-800">
+                          آخر نشاط: {formatFriendlyDate(editingTeacher.lastLoginAt)} (إجمالي {editingTeacher.loginCount || 1} مرات دخول)
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  {editingTeacher.passwordChangedAt ? (
+                    <span className="px-2 py-0.5 rounded-lg bg-emerald-200/90 text-emerald-950 font-bold text-[10px]">
+                      تم تغيير كلمة السر
+                    </span>
+                  ) : (
+                    <span className="px-2 py-0.5 rounded-lg bg-amber-200/90 text-amber-950 font-bold text-[10px]">
+                      كلمة مرور مؤقتة
+                    </span>
+                  )}
+                </div>
+              )}
+
+              {/* Force password change on first login */}
+              <div className="p-3 bg-amber-50/80 rounded-2xl border border-amber-200 flex items-start gap-2.5">
+                <input
+                  type="checkbox"
+                  id="mustChangePasswordCheck"
+                  checked={formData.mustChangePassword}
+                  onChange={(e) => setFormData({ ...formData, mustChangePassword: e.target.checked })}
+                  className="mt-0.5 w-4 h-4 text-purple-700 rounded border-slate-300 focus:ring-purple-500 cursor-pointer shrink-0"
+                />
+                <label htmlFor="mustChangePasswordCheck" className="text-xs text-amber-950 font-bold cursor-pointer select-none leading-relaxed">
+                  <span>إلزام المعلم بإنشاء كلمة مرور جديدة خاصة به عند أول تسجيل دخول (One-Time Password)</span>
+                  <span className="block text-[11px] text-amber-800 font-normal mt-0.5">
+                    عند تفعيل هذا الخيار، سيطلب النظام من المعلم إدخال كلمة مرور جديدة خاصة به فور دخوله بكلمة المرور المؤقتة، وتُحفظ وتُحدث فورياً في السحابة لتظهر لديك كأدمن.
+                  </span>
+                </label>
+              </div>
+
               {/* Role & Status */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -1000,6 +1477,336 @@ export const AdminTeachersDashboard: React.FC<AdminTeachersDashboardProps> = ({
                     className="w-full px-3 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-purple-500 text-sm font-medium"
                   />
                 </div>
+              </div>
+
+              {/* Class & Grade Permissions Scope */}
+              <div className="p-4 bg-slate-50/90 rounded-2xl border border-slate-200/90 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-xl bg-purple-100 text-purple-700 flex items-center justify-center">
+                      <Layers className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <label className="block font-black text-slate-800 text-xs sm:text-sm">
+                        صلاحيات الفصول والصفوف المعتمدة للمعلم
+                      </label>
+                      <p className="text-[10px] text-slate-500">
+                        حدد السنوات الدراسية (أولى / ثانية / ثالثة) ثم اختر الفصول المحددة لكل سنة.
+                      </p>
+                    </div>
+                  </div>
+
+                  {formData.role !== 'admin' && (
+                    <div className={`text-[11px] font-bold px-2.5 py-1 rounded-lg font-mono ${
+                      formData.assignedGrades.length > 0
+                        ? 'text-purple-800 bg-purple-100'
+                        : 'text-rose-700 bg-rose-50 border border-rose-200'
+                    }`}>
+                      {formData.assignedGrades.length === 0
+                        ? 'لم يتم تحديد فصول'
+                        : `${formData.assignedGrades.length} فصول معتمدة`}
+                    </div>
+                  )}
+                </div>
+
+                {formData.role === 'admin' ? (
+                  <div className="p-3.5 bg-purple-100/60 rounded-xl border border-purple-200 text-xs text-purple-900 font-bold flex items-center gap-2.5">
+                    <ShieldCheck className="w-5 h-5 text-purple-700 shrink-0" />
+                    <div>
+                      <p className="font-black">👑 مدير النظام (Admin)</p>
+                      <p className="text-[11px] text-purple-800 font-normal mt-0.5">
+                        يمتلك صلاحية تلقائية كاملة للوصول لكافة صفوف وفصول وطلاب المدرسة (18 فصلاً) دون الحاجة لتحديد يدوي.
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-4 pt-1">
+                    {/* STEP 1: SELECT YEARS / STAGES */}
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-xs font-black text-slate-700 flex items-center gap-1.5">
+                          <span className="w-5 h-5 rounded-full bg-purple-700 text-white text-[10px] font-black flex items-center justify-center">
+                            1
+                          </span>
+                          <span>السنوات الدراسية التي يدرّس لها المعلم:</span>
+                        </span>
+                        <span className="text-[10px] text-slate-400 font-medium">
+                          (اختر سنة أو أكثر: أولى، ثانية، أو ثالثة)
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                        {SCHOOL_STAGES.map((stage) => {
+                          const isStageActive = activeStages.includes(stage.id);
+                          const stageSelectedCount = stage.classes.filter((c) =>
+                            formData.assignedGrades.includes(c)
+                          ).length;
+
+                          const toggleStageActivation = () => {
+                            if (isStageActive) {
+                              // Deactivate stage and remove all its classes
+                              setActiveStages((prev) => prev.filter((id) => id !== stage.id));
+                              setFormData({
+                                ...formData,
+                                assignedGrades: formData.assignedGrades.filter(
+                                  (c) => !stage.classes.includes(c)
+                                )
+                              });
+                            } else {
+                              // Activate stage and pre-select all its classes for convenience
+                              setActiveStages((prev) => [...prev, stage.id]);
+                              const newClasses = Array.from(
+                                new Set([...formData.assignedGrades, ...stage.classes])
+                              );
+                              setFormData({
+                                ...formData,
+                                assignedGrades: newClasses
+                              });
+                            }
+                          };
+
+                          return (
+                            <button
+                              key={stage.id}
+                              type="button"
+                              onClick={toggleStageActivation}
+                              className={`p-3 rounded-2xl border-2 text-right transition-all cursor-pointer flex flex-col justify-between ${
+                                isStageActive
+                                  ? 'bg-purple-50/80 border-purple-600 shadow-xs ring-2 ring-purple-300/30'
+                                  : 'bg-white border-slate-200 hover:border-purple-300 hover:bg-slate-50'
+                              }`}
+                            >
+                              <div className="flex items-center justify-between">
+                                <span className={`w-7 h-7 rounded-xl font-black text-xs flex items-center justify-center font-mono ${
+                                  isStageActive
+                                    ? 'bg-purple-700 text-white'
+                                    : 'bg-slate-100 text-slate-700'
+                                }`}>
+                                  {stage.letter}
+                                </span>
+
+                                <span className={`text-[10px] font-black px-2 py-0.5 rounded-md ${
+                                  isStageActive
+                                    ? 'bg-purple-200/70 text-purple-900'
+                                    : 'bg-slate-100 text-slate-500'
+                                }`}>
+                                  {isStageActive ? 'مرحلة مفعلة ✓' : 'غير مفعل'}
+                                </span>
+                              </div>
+
+                              <div className="mt-2.5">
+                                <h5 className="font-extrabold text-xs text-slate-900">
+                                  {stage.shortName}
+                                </h5>
+                                <p className="text-[10px] text-slate-500 mt-0.5">
+                                  {stage.name}
+                                </p>
+                              </div>
+
+                              <div className="mt-2 pt-2 border-t border-slate-200/60 flex items-center justify-between text-[10px]">
+                                <span className="text-slate-400">الفصول المحددة:</span>
+                                <span className={`font-mono font-bold ${
+                                  stageSelectedCount > 0 ? 'text-purple-700' : 'text-slate-400'
+                                }`}>
+                                  {stageSelectedCount} / {stage.classes.length}
+                                </span>
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* STEP 2: SELECT SPECIFIC CLASSES FOR EACH ACTIVE STAGE */}
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-xs font-black text-slate-700 flex items-center gap-1.5">
+                          <span className="w-5 h-5 rounded-full bg-purple-700 text-white text-[10px] font-black flex items-center justify-center">
+                            2
+                          </span>
+                          <span>تحديد فصول المعلم في كل سنة دراسية:</span>
+                        </span>
+                        <span className="text-[10px] text-slate-400">
+                          (انقر على رمز الفصل لتفعيله أو إلغائه)
+                        </span>
+                      </div>
+
+                      {activeStages.length === 0 ? (
+                        <div className="p-6 bg-white rounded-2xl border border-dashed border-slate-300 text-center space-y-1.5">
+                          <Layers className="w-8 h-8 text-slate-300 mx-auto" />
+                          <p className="text-xs font-bold text-slate-700">
+                            يرجى اختيار سنة دراسية واحدة على الأقل أعلاه للبدء في تحديد الفصول
+                          </p>
+                          <p className="text-[11px] text-slate-400">
+                            مثال: انقر على "سنة ثانية" لتظهر لك فصولها من B1 إلى B6
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="space-y-3">
+                          {SCHOOL_STAGES.filter((stg) => activeStages.includes(stg.id)).map((stage) => {
+                            const stageClasses = stage.classes;
+                            const selectedCount = stageClasses.filter((c) =>
+                              formData.assignedGrades.includes(c)
+                            ).length;
+                            const isAllSelected = selectedCount === stageClasses.length;
+
+                            const toggleAllInStage = () => {
+                              if (isAllSelected) {
+                                setFormData({
+                                  ...formData,
+                                  assignedGrades: formData.assignedGrades.filter(
+                                    (c) => !stageClasses.includes(c)
+                                  )
+                                });
+                              } else {
+                                const merged = Array.from(
+                                  new Set([...formData.assignedGrades, ...stageClasses])
+                                );
+                                setFormData({
+                                  ...formData,
+                                  assignedGrades: merged
+                                });
+                              }
+                            };
+
+                            const toggleSingleClass = (className: string) => {
+                              if (formData.assignedGrades.includes(className)) {
+                                setFormData({
+                                  ...formData,
+                                  assignedGrades: formData.assignedGrades.filter((c) => c !== className)
+                                });
+                              } else {
+                                setFormData({
+                                  ...formData,
+                                  assignedGrades: [...formData.assignedGrades, className]
+                                });
+                              }
+                            };
+
+                            return (
+                              <div
+                                key={stage.id}
+                                className="p-3.5 bg-white rounded-2xl border border-purple-200/90 shadow-2xs space-y-2.5"
+                              >
+                                <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                                  <div className="flex items-center gap-2">
+                                    <span className="w-6 h-6 rounded-lg bg-purple-100 text-purple-900 font-mono font-black text-xs flex items-center justify-center">
+                                      {stage.letter}
+                                    </span>
+                                    <span className="font-extrabold text-xs text-slate-900">
+                                      فصول {stage.shortName} (مرحلة {stage.letter})
+                                    </span>
+                                    <span className="text-[10px] text-purple-700 bg-purple-50 px-2 py-0.5 rounded-md font-mono font-bold">
+                                      ({selectedCount} من {stageClasses.length} فصول مختارة)
+                                    </span>
+                                  </div>
+
+                                  <div className="flex items-center gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={toggleAllInStage}
+                                      className="text-[10px] font-bold text-purple-700 hover:text-purple-900 px-2 py-1 rounded-lg hover:bg-purple-50 transition-colors cursor-pointer"
+                                    >
+                                      {isAllSelected ? 'إلغاء كل فصول المرحلة' : `تحديد كل ${stage.shortName} (الـ 6)`}
+                                    </button>
+                                  </div>
+                                </div>
+
+                                {/* Class Pills Grid */}
+                                <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+                                  {stageClasses.map((cls) => {
+                                    const isSelected = formData.assignedGrades.includes(cls);
+                                    const shortCode = cls.split(' - ')[1] || cls;
+
+                                    return (
+                                      <button
+                                        key={cls}
+                                        type="button"
+                                        onClick={() => toggleSingleClass(cls)}
+                                        className={`py-2 px-2.5 rounded-xl text-xs font-black transition-all flex flex-col items-center justify-center gap-0.5 border-2 cursor-pointer ${
+                                          isSelected
+                                            ? 'bg-purple-700 text-white border-purple-700 shadow-xs ring-2 ring-purple-300/40'
+                                            : 'bg-slate-50 text-slate-700 border-slate-200 hover:border-purple-300 hover:bg-purple-50/40'
+                                        }`}
+                                      >
+                                        <div className="flex items-center gap-1 font-mono text-xs">
+                                          <span>{shortCode}</span>
+                                          {isSelected && <Check className="w-3 h-3 stroke-[3]" />}
+                                        </div>
+                                        <span className={`text-[9px] font-bold ${
+                                          isSelected ? 'text-purple-200' : 'text-slate-400'
+                                        }`}>
+                                          {stage.shortName}
+                                        </span>
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* STEP 3: LIVE SCOPE SUMMARY & QUICK CONTROLS */}
+                    <div className="p-3 bg-slate-100/80 rounded-2xl border border-slate-200 text-xs space-y-2">
+                      <div className="flex items-center justify-between flex-wrap gap-2">
+                        <span className="font-extrabold text-slate-700 text-[11px] flex items-center gap-1">
+                          <CheckCircle className="w-3.5 h-3.5 text-purple-600" />
+                          <span>الملخص النهائي للفصول المسندة للمعلم:</span>
+                        </span>
+
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const allGrades = SCHOOL_STAGES.flatMap((s) => s.classes);
+                              setActiveStages(SCHOOL_STAGES.map((s) => s.id));
+                              setFormData({ ...formData, assignedGrades: allGrades });
+                            }}
+                            className="text-[10px] font-bold text-purple-700 hover:text-purple-900 underline cursor-pointer"
+                          >
+                            إسناد كافة فصول المدرسة (الـ 18)
+                          </button>
+                          <span className="text-slate-300">|</span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setActiveStages([]);
+                              setFormData({ ...formData, assignedGrades: [] });
+                            }}
+                            className="text-[10px] font-bold text-rose-600 hover:text-rose-800 underline cursor-pointer"
+                          >
+                            تفريغ الكل
+                          </button>
+                        </div>
+                      </div>
+
+                      {formData.assignedGrades.length === 0 ? (
+                        <p className="text-[11px] text-rose-600 font-bold bg-rose-50 p-2 rounded-xl border border-rose-200">
+                          ⚠️ تنبيه: لم يتم اختيار أي فصل بعد. لن يظهر لهذا المعلم أي طلاب عند تسجيل دخوله حتى تسند له فصولاً.
+                        </p>
+                      ) : (
+                        <div className="flex flex-wrap gap-1.5">
+                          {formData.assignedGrades.map((g) => {
+                            const short = g.replace('الصف الأول - ', '1-')
+                                           .replace('الصف الثاني - ', '2-')
+                                           .replace('الصف الثالث - ', '3-');
+                            return (
+                              <span
+                                key={g}
+                                className="px-2 py-0.5 rounded-lg bg-white border border-purple-300 text-purple-900 font-bold font-mono text-[11px] shadow-2xs flex items-center gap-1"
+                              >
+                                <span>{short}</span>
+                              </span>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Phone & Email (Optional) */}

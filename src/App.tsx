@@ -49,7 +49,8 @@ import {
   TrendingUp,
   Cpu,
   GraduationCap,
-  UserPlus
+  UserPlus,
+  Layers
 } from 'lucide-react';
 
 const STORAGE_KEY_STUDENTS = 'we_school_students_v2';
@@ -72,7 +73,8 @@ const cleanTeacherData = (list: Teacher[]): Teacher[] => {
     return {
       ...t,
       name: cleanName || t.name,
-      avatar
+      avatar,
+      assignedGrades: Array.isArray(t.assignedGrades) ? t.assignedGrades : []
     };
   });
 };
@@ -439,6 +441,17 @@ export default function App() {
         s.nationalId === studentId
     );
     if (found) {
+      if (
+        authRole === 'teacher' &&
+        currentTeacher &&
+        currentTeacher.role !== 'admin' &&
+        currentTeacher.assignedGrades &&
+        currentTeacher.assignedGrades.length > 0 &&
+        !currentTeacher.assignedGrades.includes(found.grade)
+      ) {
+        alert(`تنبيه: الطالب (${found.name}) مسجل في (${found.grade})، وهو خارج الفصول المسندة إلى جدولك التدريسي.`);
+        return;
+      }
       setProfileStudent(found);
     } else {
       alert(`لم يتم العثور على طالب بالكود أو المعرف: ${studentId}`);
@@ -694,8 +707,41 @@ export default function App() {
     syncAllStudentsToCloud(INITIAL_STUDENTS).catch(console.error);
   };
 
-  // Filtered Students in Teacher Dashboard
-  const filteredStudents = students.filter((s) => {
+  // Determine accessible students based on teacher role and assigned classes
+  const accessibleStudents = React.useMemo(() => {
+    // Admin has access to all students across all grades
+    if (authRole !== 'teacher' || !currentTeacher || currentTeacher.role === 'admin') {
+      return students;
+    }
+    // If teacher has specific assigned classes, filter strictly to those classes
+    if (currentTeacher.assignedGrades && currentTeacher.assignedGrades.length > 0) {
+      return students.filter((s) => currentTeacher.assignedGrades!.includes(s.grade));
+    }
+    // A teacher without assigned classes sees 0 students until classes are assigned
+    return [];
+  }, [students, authRole, currentTeacher]);
+
+  // Available grade options for the filter dropdown (scoped to teacher's assigned classes)
+  const availableGradesForTeacher = React.useMemo(() => {
+    if (
+      authRole === 'teacher' &&
+      currentTeacher &&
+      currentTeacher.role !== 'admin'
+    ) {
+      return currentTeacher.assignedGrades || [];
+    }
+    return SCHOOL_INFO.grades;
+  }, [authRole, currentTeacher]);
+
+  // Reset grade filter if currently filtered grade is not in the teacher's allowed scope
+  useEffect(() => {
+    if (gradeFilter !== 'all' && !availableGradesForTeacher.includes(gradeFilter)) {
+      setGradeFilter('all');
+    }
+  }, [availableGradesForTeacher, gradeFilter]);
+
+  // Filtered Students in Teacher Dashboard (scoped to accessible students)
+  const filteredStudents = accessibleStudents.filter((s) => {
     const matchesSearch =
       s.name.includes(searchQuery) ||
       s.code.includes(searchQuery) ||
@@ -710,13 +756,13 @@ export default function App() {
     return matchesSearch && matchesGrade && matchesMajor && matchesBadge;
   });
 
-  // Analytics Stats
-  const totalStudents = students.length;
+  // Analytics Stats calculated for the teacher's accessible scope
+  const totalStudents = accessibleStudents.length;
   const averagePercentage = Math.round(
-    students.reduce((acc, s) => acc + s.percentage, 0) / (totalStudents || 1)
+    accessibleStudents.reduce((acc, s) => acc + s.percentage, 0) / (totalStudents || 1)
   );
-  const leadersCount = students.filter((s) => s.badge === 'leader').length;
-  const needAttentionCount = students.filter(
+  const leadersCount = accessibleStudents.filter((s) => s.badge === 'leader').length;
+  const needAttentionCount = accessibleStudents.filter(
     (s) => s.percentage < 30 || s.totalNegative >= 10
   ).length;
 
@@ -872,10 +918,14 @@ export default function App() {
                   <select
                     value={gradeFilter}
                     onChange={(e) => setGradeFilter(e.target.value)}
-                    className="w-full px-3 py-2.5 text-xs border border-slate-200 rounded-2xl focus:outline-hidden focus:ring-2 focus:ring-purple-500 bg-white"
+                    className="w-full px-3 py-2.5 text-xs border border-slate-200 rounded-2xl focus:outline-hidden focus:ring-2 focus:ring-purple-500 bg-white font-medium"
                   >
-                    <option value="all">كافة الصفوف الدراسية</option>
-                    {SCHOOL_INFO.grades.map((g) => (
+                    <option value="all">
+                      {currentTeacher?.role === 'admin'
+                        ? 'كافة الصفوف الدراسية (18 فصلاً)'
+                        : `كافة الفصول المسندة لي (${availableGradesForTeacher.length} فصول)`}
+                    </option>
+                    {availableGradesForTeacher.map((g) => (
                       <option key={g} value={g}>
                         {g}
                       </option>
@@ -919,7 +969,7 @@ export default function App() {
               {/* Active Filter Chips */}
               <div className="flex items-center justify-between text-xs text-slate-500 pt-1">
                 <span>
-                  عرض <strong>{filteredStudents.length}</strong> من أصل {students.length} طالب
+                  عرض <strong>{filteredStudents.length}</strong> من أصل {accessibleStudents.length} طالب
                 </span>
                 {(searchQuery || gradeFilter !== 'all' || majorFilter !== 'all' || badgeFilter !== 'all') && (
                   <button
@@ -938,7 +988,17 @@ export default function App() {
             </div>
 
             {/* Students Grid */}
-            {students.length === 0 ? (
+            {accessibleStudents.length === 0 && currentTeacher && currentTeacher.role !== 'admin' ? (
+              <div className="bg-amber-50 rounded-3xl p-10 text-center border-2 border-dashed border-amber-300 shadow-xs space-y-3">
+                <div className="w-14 h-14 bg-amber-100 text-amber-700 rounded-2xl flex items-center justify-center mx-auto border border-amber-200">
+                  <AlertTriangle className="w-7 h-7" />
+                </div>
+                <h3 className="text-base font-extrabold text-amber-950">لم يتم إسناد فصول دراسية لحسابك بعد</h3>
+                <p className="text-xs text-amber-800 max-w-lg mx-auto leading-relaxed">
+                  أهلاً بك يا <strong>{currentTeacher.name}</strong>. حسابك نشط، ولكن لم يقم مسؤول المنظومة بعد بتحديد السنوات والفصول الدراسية المسندة لجدولك التدريسي. يرجى التواصل مع إدارة المدرسة (م. أبانوب وجيه) لإسناد فصولك لتتمكن من استعراض طلابك ورصد نقاطهم.
+                </p>
+              </div>
+            ) : students.length === 0 ? (
               <div className="bg-white rounded-3xl p-12 text-center border-2 border-dashed border-purple-200 shadow-xs">
                 <div className="w-16 h-16 bg-purple-50 text-purple-700 rounded-3xl flex items-center justify-center mx-auto mb-4 border border-purple-100">
                   <UserPlus className="w-8 h-8" />
@@ -987,15 +1047,18 @@ export default function App() {
         {/* VIEW 2: LEADERBOARD & HONOR ROLL */}
         {activeView === 'leaderboard' && (
           <LeaderboardView
-            students={students}
+            students={accessibleStudents}
+            availableGrades={availableGradesForTeacher}
             onSelectStudent={(s) => setProfileStudent(s)}
+            onOpenProfile={(s) => setProfileStudent(s)}
+            onOpenCertificate={(s) => setCertificateStudent(s)}
           />
         )}
 
         {/* VIEW 3: TEACHER ATTRIBUTION & POINT AUDIT */}
         {activeView === 'attribution' && (
           <TeacherAttributionView
-            students={students}
+            students={accessibleStudents}
             teachers={teachers}
             onSelectStudent={(s) => setProfileStudent(s)}
             onOpenStudentProfile={(s) => setProfileStudent(s)}

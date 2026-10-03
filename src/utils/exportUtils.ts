@@ -1,4 +1,4 @@
-import { Student, PointLog } from '../types';
+import { Student, PointLog, Teacher } from '../types';
 
 /**
  * Downloads a CSV file with UTF-8 BOM so Arabic characters open properly in Microsoft Excel.
@@ -150,5 +150,103 @@ export function exportSystemDatabaseJSON(payload: {
   link.click();
   document.body.removeChild(link);
   URL.revokeObjectURL(url);
+}
+
+/**
+ * Exports all teachers and engineers accounts with username, password, subject, open status, and assigned classes (Excel / CSV compatible)
+ */
+export function exportTeachersAccounts(teachers: Teacher[]): void {
+  const headers = [
+    'م',
+    'اسم المعلم / المهندس',
+    'المادة التدريسية',
+    'اسم المستخدم (Username)',
+    'كلمة المرور الحالية (Password)',
+    'حالة فتح واستخدام الحساب',
+    'حالة كلمة المرور',
+    'تاريخ أول فتح للحساب',
+    'تاريخ آخر تسجيل دخول',
+    'عدد مرات الدخول',
+    'تاريخ تغيير كلمة المرور',
+    'الفصول والصفوف المسندة',
+    'الصلاحية في المنظومة',
+    'التخصص / القسم',
+    'رقم الهاتف',
+    'البريد الإلكتروني',
+    'حالة الحساب',
+    'تاريخ الإنشاء'
+  ];
+
+  const formatDate = (isoStr?: string) => {
+    if (!isoStr) return '-';
+    try {
+      const d = new Date(isoStr);
+      if (isNaN(d.getTime())) return isoStr;
+      return d.toLocaleDateString('ar-EG', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    } catch {
+      return isoStr;
+    }
+  };
+
+  const data = teachers.map((t, idx) => {
+    const roleLabel =
+      t.role === 'admin'
+        ? 'مدير النظام (Admin)'
+        : t.role === 'supervisor'
+        ? 'مشرف تدريب'
+        : 'معلم / مهندس مادة';
+
+    const classesLabel =
+      t.role === 'admin'
+        ? 'كافة فصول المدرسة (وصول شامل - 18 فصلاً)'
+        : t.assignedGrades && t.assignedGrades.length > 0
+        ? t.assignedGrades.join(' | ')
+        : 'لم تسند فصول بعد';
+
+    // Account Open & Usage Status
+    let openStatus = '❌ لم يتم فتحه بعد (حساب جديد)';
+    if (t.hasLoggedIn) {
+      if (t.passwordChangedAt || !t.mustChangePassword) {
+        openStatus = '✅ تم فتحه وتغيير كلمة السر واستخدامه';
+      } else {
+        openStatus = '⚠️ تم فتحه والدخول به (كلمة المرور مازالت مؤقتة)';
+      }
+    }
+
+    // Password Status
+    const passwordStatus = t.mustChangePassword
+      ? 'مؤقتة لمرة واحدة (يلزم تغييرها عند الدخول)'
+      : 'خاصة وسرية (تم تعيينها من قِبل المعلم)';
+
+    return [
+      idx + 1,
+      t.name,
+      t.subject || 'غير محدد',
+      t.username,
+      t.password,
+      openStatus,
+      passwordStatus,
+      formatDate(t.firstLoginAt),
+      formatDate(t.lastLoginAt),
+      t.loginCount || (t.hasLoggedIn ? 1 : 0),
+      formatDate(t.passwordChangedAt),
+      classesLabel,
+      roleLabel,
+      t.majorDepartment || 'عام',
+      t.phone || '-',
+      t.email || '-',
+      t.status === 'suspended' ? 'معطل' : 'نشط',
+      t.createdAt || '-'
+    ];
+  });
+
+  const timestamp = new Date().toISOString().split('T')[0];
+  exportToCSV(`كشف_حسابات_معلمي_مدرسة_WE_${timestamp}.csv`, [headers, ...data]);
 }
 

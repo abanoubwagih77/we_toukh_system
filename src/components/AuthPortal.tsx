@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Teacher, Student } from '../types';
 import { INITIAL_TEACHERS } from '../data/mockData';
-import { fetchTeachersFromCloud, fetchStudentsFromCloud } from '../services/firebase';
+import { fetchTeachersFromCloud, fetchStudentsFromCloud, saveTeacherToCloud } from '../services/firebase';
 import {
   Lock,
   User,
@@ -15,7 +15,10 @@ import {
   EyeOff,
   CloudCheck,
   RefreshCw,
-  Database
+  Database,
+  CheckCircle2,
+  Sparkles,
+  Check
 } from 'lucide-react';
 
 interface AuthPortalProps {
@@ -47,6 +50,15 @@ export const AuthPortal: React.FC<AuthPortalProps> = ({
   // Student Form State - Clean initial inputs
   const [nationalIdInput, setNationalIdInput] = useState<string>('');
   const [studentError, setStudentError] = useState<string>('');
+
+  // First-time Password Change State (One-Time Password Enforcement)
+  const [pendingChangeTeacher, setPendingChangeTeacher] = useState<Teacher | null>(null);
+  const [newPassword, setNewPassword] = useState<string>('');
+  const [confirmNewPassword, setConfirmNewPassword] = useState<string>('');
+  const [showNewPassword, setShowNewPassword] = useState<boolean>(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState<boolean>(false);
+  const [changePasswordError, setChangePasswordError] = useState<string>('');
+  const [isSavingNewPassword, setIsSavingNewPassword] = useState<boolean>(false);
 
   // Always prefetch live data from Google Cloud Firestore on mount
   // to ensure any new teacher, new student, or password change from another laptop is instant
@@ -112,7 +124,36 @@ export const AuthPortal: React.FC<AuthPortalProps> = ({
           setTeacherError('عذراً، هذا الحساب معطل حالياً من قِبل إدارة المدرسة. يرجى مراجعة مسؤول النظام.');
           return;
         }
-        onTeacherLogin(matched);
+
+        // Check if teacher is logging in with temporary password and must set a new private password
+        if (matched.mustChangePassword) {
+          setPendingChangeTeacher(matched);
+          setNewPassword('');
+          setConfirmNewPassword('');
+          setChangePasswordError('');
+          return;
+        }
+
+        // Record login activity and update Firestore
+        const now = new Date().toISOString();
+        const loggedInTeacher: Teacher = {
+          ...matched,
+          hasLoggedIn: true,
+          firstLoginAt: matched.firstLoginAt || now,
+          lastLoginAt: now,
+          loginCount: (matched.loginCount || 0) + 1
+        };
+
+        // Persist login activity to Cloud Firestore
+        saveTeacherToCloud(loggedInTeacher).catch((err) =>
+          console.warn('Could not update login timestamp to cloud:', err)
+        );
+
+        if (onSyncTeachers) {
+          onSyncTeachers([loggedInTeacher]);
+        }
+
+        onTeacherLogin(loggedInTeacher);
       } else {
         setTeacherError('اسم المستخدم أو كلمة المرور غير صحيحة. يرجى التأكد من البيانات المدخلة.');
       }
@@ -121,6 +162,64 @@ export const AuthPortal: React.FC<AuthPortalProps> = ({
       setTeacherError('حدث خطأ أثناء الاتصال بقاعدة البيانات السحابية. يرجى إعادة المحاولة.');
     } finally {
       setIsAuthenticating(false);
+    }
+  };
+
+  const handleSaveNewPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!pendingChangeTeacher) return;
+    setChangePasswordError('');
+
+    const trimmedNew = newPassword.trim();
+    const trimmedConfirm = confirmNewPassword.trim();
+
+    if (!trimmedNew) {
+      setChangePasswordError('يرجى كتابة كلمة المرور الجديدة');
+      return;
+    }
+    if (trimmedNew.length < 4) {
+      setChangePasswordError('يجب أن تتكون كلمة المرور من 4 خانات على الأقل لضمان الأمان');
+      return;
+    }
+    if (trimmedNew !== trimmedConfirm) {
+      setChangePasswordError('كلمتا المرور غير متطابقتين. يرجى إعادة التأكد');
+      return;
+    }
+    if (trimmedNew === pendingChangeTeacher.password) {
+      setChangePasswordError('يرجى اختيار كلمة مرور جديدة تختلف عن كلمة المرور المؤقتة السابقة');
+      return;
+    }
+
+    try {
+      setIsSavingNewPassword(true);
+      const now = new Date().toISOString();
+      const updatedTeacher: Teacher = {
+        ...pendingChangeTeacher,
+        password: trimmedNew,
+        mustChangePassword: false,
+        hasLoggedIn: true,
+        firstLoginAt: pendingChangeTeacher.firstLoginAt || now,
+        lastLoginAt: now,
+        loginCount: (pendingChangeTeacher.loginCount || 0) + 1,
+        passwordChangedAt: now
+      };
+
+      // Save directly to Google Cloud Firestore so Admin and all devices are in sync
+      await saveTeacherToCloud(updatedTeacher);
+
+      if (onSyncTeachers) {
+        onSyncTeachers([updatedTeacher]);
+      }
+
+      setPendingChangeTeacher(null);
+      setNewPassword('');
+      setConfirmNewPassword('');
+      onTeacherLogin(updatedTeacher);
+    } catch (err: any) {
+      console.error('Failed to update password:', err);
+      setChangePasswordError('حدث خطأ أثناء حفظ كلمة المرور سحابياً: ' + (err?.message || 'يرجى المحاولة مجدداً'));
+    } finally {
+      setIsSavingNewPassword(false);
     }
   };
 
@@ -381,6 +480,143 @@ export const AuthPortal: React.FC<AuthPortalProps> = ({
           🌐 البيانات مخزنة سحابياً ومحدثة في الوقت الفعلي بين جميع الأجهزة والمتصفحات
         </p>
       </div>
+
+      {/* First-time Password Change Modal */}
+      {pendingChangeTeacher && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-white rounded-3xl max-w-md w-full shadow-2xl border border-purple-200 overflow-hidden text-right" dir="rtl">
+            {/* Modal Header */}
+            <div className="bg-linear-to-r from-purple-900 via-indigo-900 to-purple-950 text-white p-5 relative">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-2xl bg-amber-400/20 text-amber-300 border border-amber-300/30 flex items-center justify-center shrink-0">
+                  <KeyRound className="w-6 h-6 animate-pulse" />
+                </div>
+                <div>
+                  <h3 className="font-black text-base text-white">
+                    تعيين كلمة مرور جديدة خاصة بك
+                  </h3>
+                  <p className="text-xs text-purple-200 mt-0.5">
+                    مرحباً {pendingChangeTeacher.name} ({pendingChangeTeacher.subject})
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Body */}
+            <form onSubmit={handleSaveNewPassword} className="p-5 sm:p-6 space-y-4">
+              <div className="p-3 bg-purple-50 border border-purple-200 rounded-2xl text-xs text-purple-900 leading-relaxed flex items-start gap-2">
+                <Sparkles className="w-4 h-4 text-purple-700 shrink-0 mt-0.5" />
+                <p>
+                  هذه أول عملية تسجيل دخول لحسابك. تم إنشاء الحساب بكلمة مرور مؤقتة لمرة واحدة. حرصاً على خصوصيتك وأمان درجات طلابك، يرجى كتابة كلمة مرور جديدة خاصة بك لاعتمادها مستقبلاً.
+                </p>
+              </div>
+
+              {changePasswordError && (
+                <div className="p-3 bg-rose-50 text-rose-800 rounded-xl text-xs font-bold border border-rose-200">
+                  {changePasswordError}
+                </div>
+              )}
+
+              {/* Username confirmation */}
+              <div>
+                <label className="block text-xs font-bold text-slate-500 mb-1">
+                  اسم المستخدم المسجل:
+                </label>
+                <div className="px-3.5 py-2.5 bg-slate-100 rounded-xl text-xs font-mono font-bold text-slate-800">
+                  {pendingChangeTeacher.username}
+                </div>
+              </div>
+
+              {/* New Password */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  كلمة المرور الجديدة: <span className="text-rose-500">*</span>
+                </label>
+                <div className="relative">
+                  <input
+                    type={showNewPassword ? 'text' : 'password'}
+                    required
+                    placeholder="اكتب كلمة مرور سرية جديدة خاصة بك..."
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    className="w-full px-3.5 py-2.5 pl-10 text-xs sm:text-sm border border-slate-200 rounded-xl focus:ring-2 focus:ring-purple-500 font-sans"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowNewPassword(!showNewPassword)}
+                    className="absolute left-3 top-2.5 text-slate-400 hover:text-slate-700 cursor-pointer"
+                  >
+                    {showNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+                <span className="text-[10px] text-slate-400 mt-1 block">
+                  (يجب ألا تقل عن 4 خانات وتختلف عن المؤقتة)
+                </span>
+              </div>
+
+              {/* Confirm New Password */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  تأكيد كلمة المرور الجديدة: <span className="text-rose-500">*</span>
+                </label>
+                <div className="relative">
+                  <input
+                    type={showConfirmPassword ? 'text' : 'password'}
+                    required
+                    placeholder="أعد كتابة كلمة المرور الجديدة للتأكيد..."
+                    value={confirmNewPassword}
+                    onChange={(e) => setConfirmNewPassword(e.target.value)}
+                    className="w-full px-3.5 py-2.5 pl-10 text-xs sm:text-sm border border-slate-200 rounded-xl focus:ring-2 focus:ring-purple-500 font-sans"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                    className="absolute left-3 top-2.5 text-slate-400 hover:text-slate-700 cursor-pointer"
+                  >
+                    {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              {/* Security Hint */}
+              <div className="p-2.5 bg-slate-50 border border-slate-200/80 rounded-xl text-[11px] text-slate-500 flex items-center gap-2">
+                <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>يتم حفظ كلمة المرور سحابياً فوراً لتسجيل الدخول بها من أي لابتوب أو هاتف.</span>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="pt-2 flex items-center gap-2">
+                <button
+                  type="submit"
+                  disabled={isSavingNewPassword}
+                  className="flex-1 py-3 px-4 bg-linear-to-r from-purple-700 to-indigo-600 hover:from-purple-800 hover:to-indigo-700 disabled:opacity-60 text-white font-extrabold text-xs sm:text-sm rounded-xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  {isSavingNewPassword ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      <span>جاري حفظ كلمة المرور سحابياً...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Check className="w-4 h-4" />
+                      <span>حفظ كلمة المرور والدخول إلى المنظومة</span>
+                    </>
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setPendingChangeTeacher(null)}
+                  disabled={isSavingNewPassword}
+                  className="px-4 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition-colors cursor-pointer"
+                >
+                  إلغاء
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
