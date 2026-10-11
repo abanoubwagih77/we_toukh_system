@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { SecretMission, Student, QuizQuestion } from '../types';
+import { SecretMission, Student, QuizQuestion, Teacher } from '../types';
 import { SCHOOL_INFO } from '../data/mockData';
 import confetti from 'canvas-confetti';
 import {
@@ -19,14 +19,18 @@ import {
   Check,
   X,
   Code,
-  Trash2
+  Trash2,
+  RotateCcw
 } from 'lucide-react';
 
 interface SecretMissionsViewProps {
   missions: SecretMission[];
   students: Student[];
+  teachers?: Teacher[];
+  currentTeacher?: Teacher | null;
   onAddMission: (newMission: SecretMission) => void;
   onDeleteMission?: (missionId: string) => void;
+  onRevokeSubmission?: (missionId: string, studentId: string) => void;
   onGradeSubmission: (
     missionId: string,
     studentId: string,
@@ -45,8 +49,11 @@ interface SecretMissionsViewProps {
 export const SecretMissionsView: React.FC<SecretMissionsViewProps> = ({
   missions,
   students,
+  teachers,
+  currentTeacher,
   onAddMission,
   onDeleteMission,
+  onRevokeSubmission,
   onGradeSubmission,
   onSimulateStudentQuiz
 }) => {
@@ -66,7 +73,9 @@ export const SecretMissionsView: React.FC<SecretMissionsViewProps> = ({
   const [badgeReward, setBadgeReward] = useState<string>('مبتكر WE التقني');
   const [deadline, setDeadline] = useState<string>('2026-10-01');
   const [secretCode, setSecretCode] = useState<string>('WE-SECRET-01');
-  const [teacherName, setTeacherName] = useState<string>('م. المشرف التكنولوجي');
+  const [teacherName, setTeacherName] = useState<string>(
+    currentTeacher?.name || teachers?.[0]?.name || 'م. أبانوب وجيه (مدير المنظومة)'
+  );
 
   // Quiz Builder
   const [quizQuestions, setQuizQuestions] = useState<QuizQuestion[]>([
@@ -543,7 +552,7 @@ export const SecretMissionsView: React.FC<SecretMissionsViewProps> = ({
               </div>
 
               {/* Reward & Details */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">النقاط المكتسبة (+):</label>
                   <input
@@ -574,6 +583,24 @@ export const SecretMissionsView: React.FC<SecretMissionsViewProps> = ({
                     onChange={(e) => setDeadline(e.target.value)}
                     className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl"
                   />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">المعلم / المشرف المعتمد:</label>
+                  <select
+                    value={teacherName}
+                    onChange={(e) => setTeacherName(e.target.value)}
+                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl bg-white font-medium"
+                  >
+                    {(teachers && teachers.length > 0
+                      ? teachers
+                      : ([{ id: 't-admin', name: 'م. أبانوب وجيه (مدير المنظومة)', subject: 'الإدارة' }] as Teacher[])
+                    ).map((t) => (
+                      <option key={t.id} value={t.name}>
+                        {t.name} {t.subject ? `(${t.subject})` : ''}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               </div>
 
@@ -719,9 +746,10 @@ export const SecretMissionsView: React.FC<SecretMissionsViewProps> = ({
                       </div>
                     )}
 
-                    {sub.status !== 'approved' && (
+                    {sub.status !== 'approved' ? (
                       <div className="pt-2 flex justify-end gap-2">
                         <button
+                          type="button"
                           onClick={() => {
                             onGradeSubmission(
                               activeReviewMission.id,
@@ -732,12 +760,44 @@ export const SecretMissionsView: React.FC<SecretMissionsViewProps> = ({
                             );
                             setActiveReviewMission(null);
                           }}
-                          className="flex items-center gap-1 px-4 py-1.5 bg-emerald-600 text-white rounded-xl font-bold hover:bg-emerald-700 text-xs"
+                          className="flex items-center gap-1 px-4 py-1.5 bg-emerald-600 text-white rounded-xl font-bold hover:bg-emerald-700 text-xs cursor-pointer shadow-xs"
                         >
                           <Check className="w-4 h-4" />
                           <span>اعتماد ومنح +{activeReviewMission.pointsReward} نقطة</span>
                         </button>
                       </div>
+                    ) : (
+                      onRevokeSubmission && (
+                        <div className="pt-2 flex justify-end gap-2 border-t border-slate-200/60 mt-1">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (
+                                window.confirm(
+                                  `هل أنت متأكد من إلغاء اعتماد هذه المهمة للطالب ${sub.studentName}؟\nسيتم حذف تسجيل إنجاز المهمة، وخصم (+${sub.awardedPoints || activeReviewMission.pointsReward} نقطة) من رصيده وإعادتها لحالتها السابقة دون المساس بباقي البيانات.`
+                                )
+                              ) {
+                                onRevokeSubmission(activeReviewMission.id, sub.studentId);
+                                setActiveReviewMission((prev) =>
+                                  prev
+                                    ? {
+                                        ...prev,
+                                        submissions: prev.submissions.filter(
+                                          (s) => s.studentId !== sub.studentId
+                                        )
+                                      }
+                                    : null
+                                );
+                              }
+                            }}
+                            className="flex items-center gap-1.5 px-3.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl font-bold text-xs transition-colors cursor-pointer"
+                            title="إلغاء اعتماد هذه المهمة وسحب النقاط الممنوحة بالغلط"
+                          >
+                            <RotateCcw className="w-3.5 h-3.5 text-rose-600" />
+                            <span>إلغاء الاعتماد وسحب النقاط (تراجع عن الإسناد)</span>
+                          </button>
+                        </div>
+                      )
                     )}
                   </div>
                 ))

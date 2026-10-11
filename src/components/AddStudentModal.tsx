@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Student } from '../types';
+import { Student, Teacher } from '../types';
 import { SCHOOL_INFO } from '../data/mockData';
 import { calculateBadge, calculatePercentage } from '../utils/badges';
 import { compressImageFile } from '../utils/imageUtils';
@@ -10,13 +10,15 @@ interface AddStudentModalProps {
   onClose: () => void;
   onAddStudent: (student: Student) => void;
   existingCount: number;
+  currentTeacher?: Teacher | null;
 }
 
 export const AddStudentModal: React.FC<AddStudentModalProps> = ({
   isOpen,
   onClose,
   onAddStudent,
-  existingCount
+  existingCount,
+  currentTeacher
 }) => {
   const [name, setName] = useState<string>('');
   const [nationalId, setNationalId] = useState<string>('');
@@ -138,7 +140,7 @@ export const AddStudentModal: React.FC<AddStudentModalProps> = ({
           category: 'رصيد نقاط الترحيب والبداية',
           points: initialPoints,
           note: `تسجيل الطالب رسمياً في الصف (${grade}) وتخصص (${major}) بمدرسة WE للتطبيقات التكنولوجية (حضور: ${attendanceRate}%)`,
-          teacherName: 'إدارة شؤون الطلاب',
+          teacherName: currentTeacher?.name || 'م. أبانوب وجيه (مدير المنظومة)',
           createdAt: new Date().toISOString()
         }
       ]
@@ -154,15 +156,15 @@ export const AddStudentModal: React.FC<AddStudentModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-xs overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/75 backdrop-blur-xs">
       <div
-        className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 relative my-8 animate-in fade-in zoom-in-95 duration-200"
+        className="bg-white rounded-3xl max-w-lg w-full max-h-[90vh] flex flex-col shadow-2xl border border-slate-200 relative animate-in fade-in zoom-in-95 duration-200 overflow-hidden"
         dir="rtl"
       >
-        {/* Header */}
-        <div className="flex items-center justify-between pb-4 border-b border-slate-100 mb-5">
-          <div className="flex items-center gap-2.5">
-            <span className="p-2.5 bg-purple-100 text-purple-700 rounded-xl">
+        {/* Header - Fixed */}
+        <div className="flex items-center justify-between px-5 sm:px-6 py-4 border-b border-slate-100 bg-linear-to-r from-purple-50/50 via-white to-slate-50/50 shrink-0">
+          <div className="flex items-center gap-3">
+            <span className="p-2.5 bg-purple-100 text-purple-700 rounded-xl shadow-xs shrink-0">
               <UserPlus className="w-5 h-5" />
             </span>
             <div>
@@ -172,19 +174,20 @@ export const AddStudentModal: React.FC<AddStudentModalProps> = ({
           </div>
           <button
             onClick={onClose}
-            className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full transition-colors"
+            type="button"
+            className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {errorMessage && (
-          <div className="p-3 mb-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-bold">
-            {errorMessage}
-          </div>
-        )}
-
-        <form onSubmit={handleSubmit} className="space-y-4 text-xs">
+        {/* Scrollable Form Content */}
+        <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto px-5 sm:px-6 py-4 space-y-4 text-xs">
+          {errorMessage && (
+            <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-bold">
+              {errorMessage}
+            </div>
+          )}
           {/* Name */}
           <div>
             <label className="block font-bold text-slate-700 mb-1">اسم الطالب الرباعي بالعربية: *</label>
@@ -367,20 +370,21 @@ export const AddStudentModal: React.FC<AddStudentModalProps> = ({
             </div>
           </div>
 
-          {/* Form Actions */}
-          <div className="pt-2 flex justify-end gap-2">
+          {/* Form Actions - Sticky Footer */}
+          <div className="pt-3 pb-1 border-t border-slate-100 flex items-center justify-end gap-2.5 sticky bottom-0 bg-white/95 backdrop-blur-xs mt-2">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 font-bold text-slate-600 hover:bg-slate-100 rounded-xl"
+              className="px-4 py-2 font-bold text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer text-xs"
             >
               إلغاء
             </button>
             <button
               type="submit"
-              className="px-5 py-2.5 bg-[#4A154B] hover:bg-[#3B0764] text-white font-bold rounded-xl shadow-md transition-all hover:scale-102 active:scale-98"
+              className="px-5 py-2.5 bg-[#4A154B] hover:bg-[#3B0764] text-white font-extrabold rounded-xl shadow-md transition-all hover:scale-102 active:scale-98 cursor-pointer text-xs flex items-center gap-1.5"
             >
-              حفظ الطالب وتوليد البطاقة الذكية
+              <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+              <span>حفظ الطالب وتوليد البطاقة الذكية</span>
             </button>
           </div>
         </form>

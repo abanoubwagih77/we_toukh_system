@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Student, SecretMission, PointLog } from '../types';
+import { Student, SecretMission, PointLog, Teacher } from '../types';
 import { BADGE_TIERS, calculateNextBadgeInfo } from '../utils/badges';
 import { PerformanceChart } from './PerformanceChart';
 import { IdCardModal } from './IdCardModal';
@@ -20,12 +20,14 @@ import {
   GraduationCap,
   ShieldCheck,
   Zap,
-  UserCheck
+  UserCheck,
+  Building
 } from 'lucide-react';
 
 interface StudentPortalViewProps {
   student: Student;
   missions: SecretMission[];
+  teachers?: Teacher[];
   onLogout: () => void;
   onSubmitQuiz: (missionId: string, studentId: string, score: number, answerText: string) => void;
 }
@@ -33,6 +35,7 @@ interface StudentPortalViewProps {
 export const StudentPortalView: React.FC<StudentPortalViewProps> = ({
   student,
   missions,
+  teachers,
   onLogout,
   onSubmitQuiz
 }) => {
@@ -48,22 +51,43 @@ export const StudentPortalView: React.FC<StudentPortalViewProps> = ({
   const badgeInfo = BADGE_TIERS[student.badge];
   const nextBadge = calculateNextBadgeInfo(student.percentage, student.points, student.targetPoints);
 
-  // Teacher breakdown for student
-  const teacherBreakdownList = useMemo(() => {
+  // Registered teacher names set to distinguish real human staff from administrative entities
+  const registeredTeacherNames = useMemo(() => {
+    return new Set((teachers || []).map((t) => t.name.trim()));
+  }, [teachers]);
+
+  // Teacher breakdown for student (only real registered staff) and separate administrative records
+  const { teacherBreakdownList, adminLogs, totalAdminPoints } = useMemo(() => {
     const map = new Map<string, { name: string; positive: number; negative: number; count: number; logs: PointLog[] }>();
+    const adminList: PointLog[] = [];
+    let adminPts = 0;
+
     student.logs.forEach((log) => {
-      const tName = log.teacherName || 'معلم المادة التكنولوجية';
-      if (!map.has(tName)) {
-        map.set(tName, { name: tName, positive: 0, negative: 0, count: 0, logs: [] });
+      const rawName = (log.teacherName || '').trim();
+      const isRegistered = registeredTeacherNames.has(rawName);
+
+      if (isRegistered) {
+        if (!map.has(rawName)) {
+          map.set(rawName, { name: rawName, positive: 0, negative: 0, count: 0, logs: [] });
+        }
+        const item = map.get(rawName)!;
+        item.count += 1;
+        if (log.type === 'positive') item.positive += log.points;
+        else item.negative += Math.abs(log.points);
+        item.logs.push(log);
+      } else {
+        adminList.push(log);
+        if (log.type === 'positive') adminPts += log.points;
+        else adminPts -= Math.abs(log.points);
       }
-      const item = map.get(tName)!;
-      item.count += 1;
-      if (log.type === 'positive') item.positive += log.points;
-      else item.negative += Math.abs(log.points);
-      item.logs.push(log);
     });
-    return Array.from(map.values()).sort((a, b) => b.positive - a.positive);
-  }, [student.logs]);
+
+    return {
+      teacherBreakdownList: Array.from(map.values()).sort((a, b) => b.positive - a.positive),
+      adminLogs: adminList,
+      totalAdminPoints: adminPts
+    };
+  }, [student.logs, registeredTeacherNames]);
 
   const studentMissions = missions.filter(
     (m) =>
@@ -400,7 +424,13 @@ export const StudentPortalView: React.FC<StudentPortalViewProps> = ({
                         </div>
                         <p className="text-slate-600 mt-1">{log.note}</p>
                         <div className="text-[10px] text-slate-400 mt-1 flex items-center gap-2">
-                          <span>المعلم الراصد: {log.teacherName}</span>
+                          {registeredTeacherNames.has((log.teacherName || '').trim()) ? (
+                            <span className="text-purple-700 font-bold">المعلم الراصد: {log.teacherName}</span>
+                          ) : (
+                            <span className="text-amber-700 font-semibold bg-amber-50 px-2 py-0.5 rounded border border-amber-200/60">
+                              🏛️ جهة الرصد: {log.teacherName || 'إدارة شؤون الطلاب'} (إجراء إداري رسمي)
+                            </span>
+                          )}
                           <span>•</span>
                           <span>{new Date(log.createdAt).toLocaleDateString('ar-EG')}</span>
                         </div>
@@ -495,78 +525,144 @@ export const StudentPortalView: React.FC<StudentPortalViewProps> = ({
 
             {teacherBreakdownList.length === 0 ? (
               <div className="p-12 text-center text-slate-400 bg-white rounded-2xl border border-dashed border-slate-200 text-sm">
-                لم يتم رصد إجراءات لك حتى الآن من قبل السادة المعلمين
+                لم يتم رصد إجراءات لك حتى الآن من قبل السادة المعلمين أو المهندسين المعتمدين
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {teacherBreakdownList.map((item) => (
-                  <div key={item.name} className="p-5 rounded-2xl bg-white border border-slate-200 shadow-xs space-y-4">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <div className="w-11 h-11 rounded-2xl bg-purple-100 text-purple-800 flex items-center justify-center font-bold">
-                          <UserCheck className="w-6 h-6" />
+                {teacherBreakdownList.map((item) => {
+                  const teacherObj = (teachers || []).find((t) => t.name === item.name);
+                  return (
+                    <div key={item.name} className="p-5 rounded-2xl bg-white border border-slate-200 shadow-xs space-y-4">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          {teacherObj?.avatar ? (
+                            <img
+                              src={teacherObj.avatar}
+                              alt={item.name}
+                              className="w-11 h-11 rounded-2xl object-cover border border-slate-200"
+                            />
+                          ) : (
+                            <div className="w-11 h-11 rounded-2xl bg-purple-100 text-purple-800 flex items-center justify-center font-bold">
+                              <UserCheck className="w-6 h-6" />
+                            </div>
+                          )}
+                          <div>
+                            <h4 className="font-extrabold text-sm text-slate-900">{item.name}</h4>
+                            <p className="text-xs text-slate-500">
+                              {teacherObj?.subject || 'كادر التدريس والتدريب'} • {item.count} ملاحظة / تقييم
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="text-left font-mono">
+                          <span
+                            className={`px-3 py-1.5 rounded-xl text-xs font-black ${
+                              item.positive - item.negative >= 0
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : 'bg-rose-100 text-rose-800'
+                            }`}
+                          >
+                            {item.positive - item.negative >= 0
+                              ? `+${item.positive - item.negative}`
+                              : item.positive - item.negative}{' '}
+                            نقطة
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2 text-center text-xs py-2.5 bg-slate-50 rounded-xl">
+                        <div>
+                          <span className="text-slate-400 block text-[10px]">حوافز إيجابية لك</span>
+                          <span className="font-black text-emerald-600 text-sm">+{item.positive}</span>
                         </div>
                         <div>
-                          <h4 className="font-extrabold text-sm text-slate-900">{item.name}</h4>
-                          <p className="text-xs text-slate-500">{item.count} ملاحظة / تقييم</p>
+                          <span className="text-slate-400 block text-[10px]">ملاحظات سلوكية / خصم</span>
+                          <span className="font-black text-rose-600 text-sm">-{item.negative}</span>
                         </div>
                       </div>
 
-                      <div className="text-left font-mono">
-                        <span
-                          className={`px-3 py-1.5 rounded-xl text-xs font-black ${
-                            item.positive - item.negative >= 0
-                              ? 'bg-emerald-100 text-emerald-800'
-                              : 'bg-rose-100 text-rose-800'
-                          }`}
-                        >
-                          {item.positive - item.negative >= 0
-                            ? `+${item.positive - item.negative}`
-                            : item.positive - item.negative}{' '}
-                          نقطة
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-2 text-center text-xs py-2.5 bg-slate-50 rounded-xl">
-                      <div>
-                        <span className="text-slate-400 block text-[10px]">حوافز إيجابية لك</span>
-                        <span className="font-black text-emerald-600 text-sm">+{item.positive}</span>
-                      </div>
-                      <div>
-                        <span className="text-slate-400 block text-[10px]">ملاحظات سلوكية / خصم</span>
-                        <span className="font-black text-rose-600 text-sm">-{item.negative}</span>
-                      </div>
-                    </div>
-
-                    <div className="space-y-2 pt-1">
-                      <span className="text-[11px] font-bold text-slate-500 block">سجل ملاحظات هذا المعلم لك:</span>
-                      {item.logs.map((l) => (
-                        <div
-                          key={l.id}
-                          className="text-xs text-slate-700 bg-slate-50/80 p-2.5 rounded-xl border border-slate-100 flex items-start justify-between gap-2"
-                        >
-                          <div className="flex items-start gap-2">
-                            <span
-                              className={`px-2 py-0.5 rounded-md font-mono font-bold text-[11px] shrink-0 ${
-                                l.type === 'positive'
-                                  ? 'bg-emerald-100 text-emerald-800'
-                                  : 'bg-rose-100 text-rose-800'
-                              }`}
-                            >
-                              {l.points > 0 ? `+${l.points}` : l.points}
-                            </span>
-                            <div>
-                              <span className="font-bold text-slate-900">{l.category}</span>
-                              <p className="text-slate-500 text-[11px] mt-0.5">{l.note}</p>
+                      <div className="space-y-2 pt-1">
+                        <span className="text-[11px] font-bold text-slate-500 block">سجل ملاحظات هذا المعلم لك:</span>
+                        {item.logs.map((l) => (
+                          <div
+                            key={l.id}
+                            className="text-xs text-slate-700 bg-slate-50/80 p-2.5 rounded-xl border border-slate-100 flex items-start justify-between gap-2"
+                          >
+                            <div className="flex items-start gap-2">
+                              <span
+                                className={`px-2 py-0.5 rounded-md font-mono font-bold text-[11px] shrink-0 ${
+                                  l.type === 'positive'
+                                    ? 'bg-emerald-100 text-emerald-800'
+                                    : 'bg-rose-100 text-rose-800'
+                                }`}
+                              >
+                                {l.points > 0 ? `+${l.points}` : l.points}
+                              </span>
+                              <div>
+                                <span className="font-bold text-slate-900">{l.category}</span>
+                                <p className="text-slate-500 text-[11px] mt-0.5">{l.note}</p>
+                              </div>
                             </div>
+                            <span className="text-[10px] text-slate-400 shrink-0 font-mono">{l.timestamp}</span>
                           </div>
-                          <span className="text-[10px] text-slate-400 shrink-0 font-mono">{l.timestamp}</span>
-                        </div>
-                      ))}
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Dedicated Administrative Opening & Welcome Records Section */}
+            {adminLogs.length > 0 && (
+              <div className="mt-4 pt-3 border-t border-slate-200">
+                <div className="p-4 sm:p-5 rounded-2xl bg-amber-50/70 border border-amber-200/80 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-11 h-11 rounded-2xl bg-amber-200/80 text-amber-900 flex items-center justify-center font-bold">
+                        <Building className="w-6 h-6 text-amber-800" />
+                      </div>
+                      <div>
+                        <h4 className="font-extrabold text-sm text-amber-950">
+                          الرصيد الافتتاحي والإجراءات الإدارية ({adminLogs.length} إجراء)
+                        </h4>
+                        <p className="text-xs text-amber-700">
+                          رصيد ترحيبي وتسكين رسمي من إدارة شؤون الطلاب والنظام المدرسي
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="text-left font-mono">
+                      <span className="px-3 py-1.5 rounded-xl text-xs font-black bg-amber-200 text-amber-900">
+                        {totalAdminPoints >= 0 ? `+${totalAdminPoints}` : totalAdminPoints} نقطة
+                      </span>
                     </div>
                   </div>
-                ))}
+
+                  <div className="space-y-2 pt-1">
+                    {adminLogs.map((l) => (
+                      <div
+                        key={l.id}
+                        className="bg-white/90 p-3 rounded-xl border border-amber-200/60 text-xs text-slate-700 flex items-start justify-between gap-3"
+                      >
+                        <div className="space-y-0.5">
+                          <span className="font-bold text-slate-900 block">{l.category}</span>
+                          <span className="text-[11px] text-slate-500 block leading-relaxed">{l.note}</span>
+                          <span className="text-[10px] text-amber-800 font-semibold block">
+                            جهة الرصد: {l.teacherName || 'إدارة شؤون الطلاب'}
+                          </span>
+                        </div>
+                        <span
+                          className={`font-black font-mono px-2 py-0.5 rounded-lg shrink-0 ${
+                            l.type === 'positive' ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
+                          }`}
+                        >
+                          {l.points > 0 ? `+${l.points}` : l.points}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               </div>
             )}
           </div>

@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Student, PointType } from '../types';
+import React, { useState, useEffect } from 'react';
+import { Student, PointType, Teacher } from '../types';
 import { QUICK_ACTIONS, calculateBadge, calculatePercentage, BADGE_TIERS } from '../utils/badges';
 import confetti from 'canvas-confetti';
 import {
@@ -22,6 +22,8 @@ interface AddPointsModalProps {
   student: Student;
   isOpen: boolean;
   onClose: () => void;
+  teachers?: Teacher[];
+  currentTeacher?: Teacher | null;
   onAddPoint: (
     studentId: string,
     type: PointType,
@@ -36,6 +38,8 @@ export const AddPointsModal: React.FC<AddPointsModalProps> = ({
   student,
   isOpen,
   onClose,
+  teachers,
+  currentTeacher,
   onAddPoint
 }) => {
   const [pointType, setPointType] = useState<PointType>('positive');
@@ -43,7 +47,17 @@ export const AddPointsModal: React.FC<AddPointsModalProps> = ({
   const [category, setCategory] = useState<string>('إجابة نموذجية ومشاركة صفية');
   const [pointsAmount, setPointsAmount] = useState<number>(5);
   const [note, setNote] = useState<string>('');
-  const [teacherName, setTeacherName] = useState<string>('م. المشرف التكنولوجي');
+  const [teacherName, setTeacherName] = useState<string>(
+    currentTeacher?.name || teachers?.[0]?.name || 'م. أبانوب وجيه (مدير المنظومة)'
+  );
+
+  useEffect(() => {
+    if (isOpen) {
+      setTeacherName(
+        currentTeacher?.name || teachers?.[0]?.name || 'م. أبانوب وجيه (مدير المنظومة)'
+      );
+    }
+  }, [isOpen, currentTeacher, teachers]);
 
   if (!isOpen) return null;
 
@@ -289,17 +303,25 @@ export const AddPointsModal: React.FC<AddPointsModalProps> = ({
             />
           </div>
 
-          {/* Teacher name */}
+          {/* Teacher name selector */}
           <div>
             <label className="block text-xs font-bold text-slate-700 mb-1">
-              اسم المعلم / القائم بالرصد:
+              المعلم / المهندس القائم بالرصد:
             </label>
-            <input
-              type="text"
+            <select
               value={teacherName}
               onChange={(e) => setTeacherName(e.target.value)}
-              className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-purple-500"
-            />
+              className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-purple-500 bg-white font-medium"
+            >
+              {(teachers && teachers.length > 0
+                ? teachers
+                : ([{ id: 't-admin', name: 'م. أبانوب وجيه (مدير المنظومة)', subject: 'الإدارة' }] as Teacher[])
+              ).map((t) => (
+                <option key={t.id} value={t.name}>
+                  {t.name} {t.subject ? `(${t.subject})` : ''}
+                </option>
+              ))}
+            </select>
           </div>
 
           {/* Dynamic Preview Card */}

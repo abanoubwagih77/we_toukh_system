@@ -320,6 +320,17 @@ export const AdminTeachersDashboard: React.FC<AdminTeachersDashboardProps> = ({
       return;
     }
 
+    // Ensure administrative entities like 'إدارة شؤون الطلاب' are not added as individual teachers
+    const trimmedName = formData.name.trim();
+    if (
+      trimmedName === 'إدارة شؤون الطلاب' ||
+      trimmedName.includes('شؤون الطلاب') ||
+      formData.username.toLowerCase().includes('affairs')
+    ) {
+      setFormError('اسم "إدارة شؤون الطلاب" مخصص للجهات الإدارية والنظام المدرسي، ولا يمكن تسجيله كحساب شخصي لمعلم أو مهندس.');
+      return;
+    }
+
     // Check username uniqueness
     const userConflict = teachers.find(
       (t) =>

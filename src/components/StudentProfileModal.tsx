@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Student, SecretMission, PointType, PointLog } from '../types';
+import React, { useState, useMemo } from 'react';
+import { Student, SecretMission, PointType, PointLog, Teacher } from '../types';
 import { BADGE_TIERS } from '../utils/badges';
 import { PerformanceChart } from './PerformanceChart';
 import {
@@ -18,7 +18,10 @@ import {
   AlertTriangle,
   Cpu,
   Target,
-  Pencil
+  Pencil,
+  RotateCcw,
+  Trash2,
+  Building
 } from 'lucide-react';
 
 interface StudentProfileModalProps {
@@ -26,10 +29,14 @@ interface StudentProfileModalProps {
   isOpen: boolean;
   onClose: () => void;
   missions: SecretMission[];
+  teachers?: Teacher[];
+  currentTeacher?: Teacher | null;
   onOpenAddPoints: (student: Student, defaultType?: PointType) => void;
   onOpenIdCard: (student: Student) => void;
   onOpenCertificate?: (student: Student) => void;
   onEditStudent?: (student: Student) => void;
+  onRevokeMissionSubmission?: (missionId: string, studentId: string) => void;
+  onDeletePointLog?: (studentId: string, logId: string) => void;
 }
 
 interface TeacherBreakdownItem {
@@ -45,10 +52,14 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
   isOpen,
   onClose,
   missions,
+  teachers,
+  currentTeacher,
   onOpenAddPoints,
   onOpenIdCard,
   onOpenCertificate,
-  onEditStudent
+  onEditStudent,
+  onRevokeMissionSubmission,
+  onDeletePointLog
 }) => {
   const [activeTab, setActiveTab] = useState<'overview' | 'attribution' | 'logs' | 'missions'>('overview');
   const [logFilter, setLogFilter] = useState<'all' | 'positive' | 'negative'>('all');
@@ -62,23 +73,47 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
     return true;
   });
 
-  // Calculate teacher breakdown for this specific student
-  const initialMap: Record<string, TeacherBreakdownItem> = {};
-  const teacherBreakdown = student.logs.reduce((acc, log) => {
-    const tName = log.teacherName || 'معلم المادة التكنولوجية';
-    if (!acc[tName]) {
-      acc[tName] = { name: tName, positive: 0, negative: 0, count: 0, logs: [] };
-    }
-    acc[tName].count += 1;
-    if (log.type === 'positive') acc[tName].positive += log.points;
-    else acc[tName].negative += Math.abs(log.points);
-    acc[tName].logs.push(log);
-    return acc;
-  }, initialMap);
+  // Only real registered teachers from teachers list are included in teacher breakdown!
+  // Any administrative or system logs (e.g. 'إدارة شؤون الطلاب') are kept in adminLogs.
+  const registeredTeacherNames = useMemo(() => {
+    return new Set((teachers || []).map((t) => t.name.trim()));
+  }, [teachers]);
 
-  const teacherBreakdownList: TeacherBreakdownItem[] = (Object.values(teacherBreakdown) as TeacherBreakdownItem[]).sort(
-    (a, b) => b.positive - a.positive
-  );
+  const { teacherBreakdownList, adminLogs, totalAdminPoints } = useMemo(() => {
+    const teacherMap: Record<string, TeacherBreakdownItem> = {};
+    const adminList: PointLog[] = [];
+    let adminPts = 0;
+
+    student.logs.forEach((log) => {
+      const rawName = (log.teacherName || '').trim();
+      const isRegisteredTeacher = registeredTeacherNames.has(rawName);
+
+      if (isRegisteredTeacher) {
+        if (!teacherMap[rawName]) {
+          teacherMap[rawName] = { name: rawName, positive: 0, negative: 0, count: 0, logs: [] };
+        }
+        teacherMap[rawName].count += 1;
+        if (log.type === 'positive') teacherMap[rawName].positive += log.points;
+        else teacherMap[rawName].negative += Math.abs(log.points);
+        teacherMap[rawName].logs.push(log);
+      } else {
+        // Administrative / system log (such as 'إدارة شؤون الطلاب', initial welcome, etc.)
+        adminList.push(log);
+        if (log.type === 'positive') adminPts += log.points;
+        else adminPts -= Math.abs(log.points);
+      }
+    });
+
+    const list = (Object.values(teacherMap) as TeacherBreakdownItem[]).sort(
+      (a, b) => b.positive - a.positive
+    );
+
+    return {
+      teacherBreakdownList: list,
+      adminLogs: adminList,
+      totalAdminPoints: adminPts
+    };
+  }, [student.logs, registeredTeacherNames]);
 
   // Filter missions relevant to this student
   const studentMissions = missions.filter(
@@ -345,83 +380,149 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
             <div className="space-y-4">
               <div className="p-4 bg-purple-50/80 rounded-2xl border border-purple-200 text-xs text-purple-900 flex items-center justify-between">
                 <div>
-                  <strong>مصادر نقاط الطالب ({student.name}):</strong> يوضح هذا القسم المعلمين والمهندسين الذين رصدوا له النقاط، مع إجمالي الحوافز والمخالفات لكل معلم.
+                  <strong>مصادر نقاط الطالب ({student.name}):</strong> يوضح هذا القسم المعلمين والمهندسين المعتمدين الذين رصدوا له النقاط، مع إجمالي الحوافز والمخالفات لكل معلم.
                 </div>
                 <span className="px-3 py-1 bg-purple-600 text-white font-bold rounded-xl text-[11px]">
-                  {teacherBreakdownList.length} معلمين ومهندسين
+                  {teacherBreakdownList.length} معلمين ومهندسين معتمدين
                 </span>
               </div>
 
               {teacherBreakdownList.length === 0 ? (
                 <div className="p-8 text-center text-slate-400 bg-slate-50 rounded-2xl border border-dashed border-slate-200 text-xs">
-                  لا توجد إجراءات مسجلة لهذا الطالب حتى الآن
+                  لم يتم رصد إجراءات من معلمين أو مهندسين معتمدين لهذا الطالب حتى الآن
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {teacherBreakdownList.map((item) => (
-                    <div key={item.name} className="p-4 rounded-2xl bg-white border border-slate-200 shadow-xs space-y-3">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2.5">
-                          <div className="w-10 h-10 rounded-xl bg-purple-100 text-purple-800 flex items-center justify-center font-bold text-sm">
-                            <UserCheck className="w-5 h-5" />
+                  {teacherBreakdownList.map((item) => {
+                    const teacherObj = (teachers || []).find((t) => t.name === item.name);
+                    return (
+                      <div key={item.name} className="p-4 rounded-2xl bg-white border border-slate-200 shadow-xs space-y-3">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2.5">
+                            {teacherObj?.avatar ? (
+                              <img
+                                src={teacherObj.avatar}
+                                alt={item.name}
+                                className="w-10 h-10 rounded-xl object-cover border border-slate-200"
+                              />
+                            ) : (
+                              <div className="w-10 h-10 rounded-xl bg-purple-100 text-purple-800 flex items-center justify-center font-bold text-sm">
+                                <UserCheck className="w-5 h-5" />
+                              </div>
+                            )}
+                            <div>
+                              <h4 className="font-extrabold text-sm text-slate-900">{item.name}</h4>
+                              <p className="text-[11px] text-slate-500">
+                                {teacherObj?.subject || 'كادر التدريس والتدريب'} • {item.count} إجراء
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="text-left font-mono">
+                            <span
+                              className={`px-2.5 py-1 rounded-xl text-xs font-black ${
+                                item.positive - item.negative >= 0
+                                  ? 'bg-emerald-100 text-emerald-800'
+                                  : 'bg-rose-100 text-rose-800'
+                              }`}
+                            >
+                              {item.positive - item.negative >= 0
+                                ? `+${item.positive - item.negative}`
+                                : item.positive - item.negative}{' '}
+                              نقطة
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2 text-center text-xs py-2 bg-slate-50 rounded-xl">
+                          <div>
+                            <span className="text-slate-400 block text-[10px]">حوافز إيجابية</span>
+                            <span className="font-black text-emerald-600">+{item.positive}</span>
                           </div>
                           <div>
-                            <h4 className="font-extrabold text-sm text-slate-900">{item.name}</h4>
-                            <p className="text-[11px] text-slate-500">{item.count} إجراء مسجل للطالب</p>
+                            <span className="text-slate-400 block text-[10px]">مخالفات مسجلة</span>
+                            <span className="font-black text-rose-600">-{item.negative}</span>
                           </div>
                         </div>
 
-                        <div className="text-left font-mono">
-                          <span
-                            className={`px-2.5 py-1 rounded-xl text-xs font-black ${
-                              item.positive - item.negative >= 0
-                                ? 'bg-emerald-100 text-emerald-800'
-                                : 'bg-rose-100 text-rose-800'
-                            }`}
-                          >
-                            {item.positive - item.negative >= 0
-                              ? `+${item.positive - item.negative}`
-                              : item.positive - item.negative}{' '}
-                            نقطة
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-2 text-center text-xs py-2 bg-slate-50 rounded-xl">
-                        <div>
-                          <span className="text-slate-400 block text-[10px]">حوافز إيجابية</span>
-                          <span className="font-black text-emerald-600">+{item.positive}</span>
-                        </div>
-                        <div>
-                          <span className="text-slate-400 block text-[10px]">مخالفات مسجلة</span>
-                          <span className="font-black text-rose-600">-{item.negative}</span>
-                        </div>
-                      </div>
-
-                      <div className="space-y-1.5 pt-1">
-                        <span className="text-[10px] font-bold text-slate-400 block">آخر الملاحظات:</span>
-                        {item.logs.slice(0, 2).map((l) => (
-                          <div
-                            key={l.id}
-                            className="text-[11px] text-slate-600 flex items-start gap-1.5 bg-slate-50 p-2 rounded-lg"
-                          >
-                            <span
-                              className={
-                                l.type === 'positive'
-                                  ? 'text-emerald-600 font-bold'
-                                  : 'text-rose-600 font-bold'
-                              }
+                        <div className="space-y-1.5 pt-1">
+                          <span className="text-[10px] font-bold text-slate-400 block">آخر الملاحظات:</span>
+                          {item.logs.slice(0, 2).map((l) => (
+                            <div
+                              key={l.id}
+                              className="text-[11px] text-slate-600 flex items-start gap-1.5 bg-slate-50 p-2 rounded-lg"
                             >
-                              {l.points > 0 ? `+${l.points}` : l.points}
-                            </span>
-                            <span className="truncate">
-                              {l.category}: {l.note}
-                            </span>
-                          </div>
-                        ))}
+                              <span
+                                className={
+                                  l.type === 'positive'
+                                    ? 'text-emerald-600 font-bold'
+                                    : 'text-rose-600 font-bold'
+                                }
+                              >
+                                {l.points > 0 ? `+${l.points}` : l.points}
+                              </span>
+                              <span className="truncate">
+                                {l.category}: {l.note}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Dedicated Administrative & System Records Section */}
+              {adminLogs.length > 0 && (
+                <div className="mt-4 pt-3 border-t border-slate-200">
+                  <div className="p-4 rounded-2xl bg-amber-50/70 border border-amber-200/80 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-10 h-10 rounded-xl bg-amber-200/80 text-amber-900 flex items-center justify-center font-bold">
+                          <Building className="w-5 h-5 text-amber-800" />
+                        </div>
+                        <div>
+                          <h4 className="font-extrabold text-xs text-amber-950">
+                            الرصيد الإفتتاحي والإجراءات الإدارية ({adminLogs.length} إجراء)
+                          </h4>
+                          <p className="text-[11px] text-amber-700">
+                            سجلات رسمية صادرة من إدارة شؤون الطلاب والنظام المدرسي (ترحيب وتسكين الطلاب)
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="text-left font-mono">
+                        <span className="px-2.5 py-1 rounded-xl text-xs font-black bg-amber-200 text-amber-900">
+                          {totalAdminPoints >= 0 ? `+${totalAdminPoints}` : totalAdminPoints} نقطة
+                        </span>
                       </div>
                     </div>
-                  ))}
+
+                    <div className="space-y-2 pt-1">
+                      {adminLogs.map((l) => (
+                        <div
+                          key={l.id}
+                          className="bg-white/90 p-2.5 rounded-xl border border-amber-200/60 text-xs text-slate-700 flex items-start justify-between gap-3"
+                        >
+                          <div className="space-y-0.5">
+                            <span className="font-bold text-slate-900 block">{l.category}</span>
+                            <span className="text-[11px] text-slate-500 block leading-relaxed">{l.note}</span>
+                            <span className="text-[10px] text-amber-800 font-semibold block">
+                              جهة الرصد: {l.teacherName || 'إدارة شؤون الطلاب'}
+                            </span>
+                          </div>
+                          <span
+                            className={`font-black font-mono px-2 py-0.5 rounded-lg shrink-0 ${
+                              l.type === 'positive' ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
+                            }`}
+                          >
+                            {l.points > 0 ? `+${l.points}` : l.points}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
@@ -503,10 +604,17 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
                               {log.note}
                             </p>
                             <div className="flex items-center gap-3 text-[10px] text-slate-400 pt-1">
-                              <span className="flex items-center gap-1">
-                                <UserCheck className="w-3 h-3 text-purple-600" />
-                                {log.teacherName}
-                              </span>
+                              {registeredTeacherNames.has((log.teacherName || '').trim()) ? (
+                                <span className="flex items-center gap-1 text-purple-700 font-bold">
+                                  <UserCheck className="w-3 h-3 text-purple-600" />
+                                  {log.teacherName}
+                                </span>
+                              ) : (
+                                <span className="flex items-center gap-1 text-amber-700 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200/60 font-semibold">
+                                  <Building className="w-3 h-3 text-amber-600" />
+                                  {log.teacherName || 'إدارة شؤون الطلاب'} (إجراء إداري رسمي)
+                                </span>
+                              )}
                               <span>•</span>
                               <span className="flex items-center gap-1 font-mono">
                                 <Clock className="w-3 h-3" />
@@ -522,14 +630,35 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
                           </div>
                         </div>
 
-                        <div
-                          className={`text-sm font-black px-2.5 py-1 rounded-xl shrink-0 ${
-                            isPos
-                              ? 'bg-emerald-600 text-white'
-                              : 'bg-rose-600 text-white'
-                          }`}
-                        >
-                          {log.points > 0 ? `+${log.points}` : log.points} نقطة
+                        <div className="flex items-center gap-2 shrink-0">
+                          <div
+                            className={`text-sm font-black px-2.5 py-1 rounded-xl ${
+                              isPos
+                                ? 'bg-emerald-600 text-white'
+                                : 'bg-rose-600 text-white'
+                            }`}
+                          >
+                            {log.points > 0 ? `+${log.points}` : log.points} نقطة
+                          </div>
+
+                          {onDeletePointLog && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (
+                                  window.confirm(
+                                    `هل أنت متأكد من رغبتك في حذف هذا الإجراء "${log.category}" (${log.points > 0 ? `+${log.points}` : log.points} نقطة) المسجل للطالب ${student.name}؟\nسيتم التراجع عن تأثير النقاط على رصيده دون المساس بباقي البيانات.`
+                                  )
+                                ) {
+                                  onDeletePointLog(student.id, log.id);
+                                }
+                              }}
+                              className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors border border-transparent hover:border-rose-200 cursor-pointer"
+                              title="حذف هذا الإجراء وإلغاء نقاطه إذا أضيف بالغلط"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
                         </div>
                       </div>
                     );
@@ -594,10 +723,32 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
 
                           <div>
                             {isDone ? (
-                              <span className="inline-flex items-center gap-1 text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-lg font-bold border border-emerald-200 text-[11px]">
-                                <ShieldCheck className="w-3.5 h-3.5" />
-                                <span>تم الإنجاز والتقييم ({submission.awardedPoints || mission.pointsReward} نقطة)</span>
-                              </span>
+                              <div className="flex items-center gap-2 flex-wrap justify-end">
+                                <span className="inline-flex items-center gap-1 text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-lg font-bold border border-emerald-200 text-[11px]">
+                                  <ShieldCheck className="w-3.5 h-3.5" />
+                                  <span>تم الإنجاز والتقييم ({submission.awardedPoints || mission.pointsReward} نقطة)</span>
+                                </span>
+
+                                {onRevokeMissionSubmission && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      if (
+                                        window.confirm(
+                                          `هل أنت متأكد من إلغاء إنجاز مهمة "${mission.title}" للطالب ${student.name}؟\nسيتم حذف تسجيل إنجاز المهمة، وخصم (+${submission.awardedPoints || mission.pointsReward} نقطة) من رصيده وإعادتها لحالتها السابقة دون المساس بباقي بياناته.`
+                                        )
+                                      ) {
+                                        onRevokeMissionSubmission(mission.id, student.id);
+                                      }
+                                    }}
+                                    className="inline-flex items-center gap-1 px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg font-bold text-[11px] transition-colors cursor-pointer"
+                                    title="إلغاء إنجاز هذه المهمة وسحب نقاطها إذا تم إسنادها أو اعتمادها بالغلط"
+                                  >
+                                    <RotateCcw className="w-3 h-3 text-rose-600" />
+                                    <span>إلغاء الإنجاز (سحب النقاط)</span>
+                                  </button>
+                                )}
+                              </div>
                             ) : (
                               <span className="inline-flex items-center gap-1 text-amber-700 bg-amber-50 px-2.5 py-1 rounded-lg font-bold border border-amber-200 text-[11px]">
                                 <Clock className="w-3.5 h-3.5" />

@@ -58,25 +58,41 @@ const STORAGE_KEY_MISSIONS = 'we_school_missions_v2';
 const STORAGE_KEY_AUTH = 'we_school_auth_v1';
 const STORAGE_KEY_TEACHERS = 'we_school_teachers_v3';
 
-// Helper to ensure any old references to "بهاء وجيه" or broken avatars migrate cleanly
+// Helper to ensure any old references to "بهاء وجيه" migrate cleanly and
+// filter out administrative non-teacher entities like 'إدارة شؤون الطلاب'
 const cleanTeacherData = (list: Teacher[]): Teacher[] => {
-  return (list || []).map((t) => {
-    let avatar = t.avatar || '';
-    if (avatar.includes('photo-1472099645785-5658abf4ff4e') || avatar.includes('unsplash.com')) {
-      avatar = '';
-    }
-    let cleanName = t.name || '';
-    if (cleanName.includes('بهاء') || t.id === 't-admin') {
-      cleanName = 'م. أبانوب وجيه (مدير المنظومة)';
-    }
+  return (list || [])
+    .filter((t) => {
+      if (!t || !t.name) return false;
+      const cleanName = t.name.trim();
+      // Ensure only real human teachers/engineers are kept in the teachers list
+      if (
+        cleanName === 'إدارة شؤون الطلاب' ||
+        cleanName.includes('شؤون الطلاب') ||
+        t.username === 'students_affairs' ||
+        t.username === 'affairs'
+      ) {
+        return false;
+      }
+      return true;
+    })
+    .map((t) => {
+      let avatar = t.avatar || '';
+      if (avatar.includes('photo-1472099645785-5658abf4ff4e') || avatar.includes('unsplash.com')) {
+        avatar = '';
+      }
+      let cleanName = t.name || '';
+      if (cleanName.includes('بهاء') || t.id === 't-admin') {
+        cleanName = 'م. أبانوب وجيه (مدير المنظومة)';
+      }
 
-    return {
-      ...t,
-      name: cleanName || t.name,
-      avatar,
-      assignedGrades: Array.isArray(t.assignedGrades) ? t.assignedGrades : []
-    };
-  });
+      return {
+        ...t,
+        name: cleanName || t.name,
+        avatar,
+        assignedGrades: Array.isArray(t.assignedGrades) ? t.assignedGrades : []
+      };
+    });
 };
 
 // Filter out old static/mock missions
@@ -162,6 +178,7 @@ export default function App() {
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
   const [idCardStudent, setIdCardStudent] = useState<Student | null>(null);
   const [certificateStudent, setCertificateStudent] = useState<Student | null>(null);
+  const [certificateIssuer, setCertificateIssuer] = useState<string>('');
   const [addPointsState, setAddPointsState] = useState<{
     student: Student;
     defaultType?: PointType;
@@ -584,6 +601,113 @@ export default function App() {
     );
   };
 
+  // Revoke/Cancel an approved mission submission and revert awarded points
+  const handleRevokeMissionSubmission = async (missionId: string, studentId: string) => {
+    const targetMission = missions.find((m) => m.id === missionId);
+    if (!targetMission) return;
+
+    const targetStudent = students.find((s) => s.id === studentId);
+    if (!targetStudent) return;
+
+    const submission = targetMission.submissions.find((s) => s.studentId === studentId);
+    const awardedPoints = submission?.awardedPoints || targetMission.pointsReward || 0;
+
+    // 1. Update missions state and Cloud Firestore: remove this student's submission
+    const updatedMission: SecretMission = {
+      ...targetMission,
+      submissions: targetMission.submissions.filter((s) => s.studentId !== studentId)
+    };
+    setMissions((prev) => prev.map((m) => (m.id === missionId ? updatedMission : m)));
+    saveMissionToCloud(updatedMission).catch(console.error);
+
+    // 2. Update student state and Cloud Firestore: deduct awarded points and reduce missions count
+    const newPoints = Math.max(0, targetStudent.points - awardedPoints);
+    const newTotalPos = Math.max(0, targetStudent.totalPositive - awardedPoints);
+    const newPercentage = calculatePercentage(newPoints, targetStudent.targetPoints);
+    const newBadge = calculateBadge(newPercentage);
+    const newMissionsCompleted = Math.max(0, (targetStudent.secretMissionsCompleted || 1) - 1);
+
+    // Remove the mission approval log from student's logs
+    let removedLog = false;
+    const newLogs = targetStudent.logs.filter((log) => {
+      if (
+        !removedLog &&
+        ((log.category === 'إنجاز سيكريت ميشن بامتياز' &&
+          (log.note.includes(targetMission.title) || log.points === awardedPoints)) ||
+          log.note.includes(targetMission.title))
+      ) {
+        removedLog = true;
+        return false;
+      }
+      return true;
+    });
+
+    const updatedStudent: Student = {
+      ...targetStudent,
+      points: newPoints,
+      totalPositive: newTotalPos,
+      percentage: newPercentage,
+      badge: newBadge,
+      secretMissionsCompleted: newMissionsCompleted,
+      logs: newLogs
+    };
+
+    setStudents((prev) => prev.map((s) => (s.id === studentId ? updatedStudent : s)));
+    if (profileStudent?.id === studentId) {
+      setProfileStudent(updatedStudent);
+    }
+    await saveStudentToCloud(updatedStudent);
+  };
+
+  // Delete a specific point log (positive or negative) and revert its points
+  const handleDeletePointLog = async (studentId: string, logId: string) => {
+    const targetStudent = students.find((s) => s.id === studentId);
+    if (!targetStudent) return;
+
+    const targetLog = targetStudent.logs.find((l) => l.id === logId);
+    if (!targetLog) return;
+
+    const deltaPoints = targetLog.points;
+    const isPos = targetLog.type === 'positive';
+
+    const newPoints = isPos
+      ? Math.max(0, targetStudent.points - deltaPoints)
+      : targetStudent.points + Math.abs(deltaPoints);
+
+    const newTotalPos = isPos
+      ? Math.max(0, targetStudent.totalPositive - deltaPoints)
+      : targetStudent.totalPositive;
+
+    const newTotalNeg = !isPos
+      ? Math.max(0, targetStudent.totalNegative - Math.abs(deltaPoints))
+      : targetStudent.totalNegative;
+
+    const isMissionLog = targetLog.category === 'إنجاز سيكريت ميشن بامتياز';
+    const newMissionsCompleted = isMissionLog
+      ? Math.max(0, (targetStudent.secretMissionsCompleted || 1) - 1)
+      : targetStudent.secretMissionsCompleted;
+
+    const newPercentage = calculatePercentage(newPoints, targetStudent.targetPoints);
+    const newBadge = calculateBadge(newPercentage);
+
+    const updatedStudent: Student = {
+      ...targetStudent,
+      points: newPoints,
+      totalPositive: newTotalPos,
+      totalNegative: newTotalNeg,
+      percentage: newPercentage,
+      badge: newBadge,
+      secretMissionsCompleted: newMissionsCompleted,
+      logs: targetStudent.logs.filter((l) => l.id !== logId)
+    };
+
+    setStudents((prev) => prev.map((s) => (s.id === studentId ? updatedStudent : s)));
+    if (profileStudent?.id === studentId) {
+      setProfileStudent(updatedStudent);
+    }
+    await saveStudentToCloud(updatedStudent);
+  };
+
   // Student Management Handlers
   const handleUpdateStudent = async (updatedStudent: Student) => {
     setStudents((prev) =>
@@ -774,7 +898,16 @@ export default function App() {
         teachers={teachers}
         onTeacherLogin={handleTeacherLogin}
         onStudentLogin={handleStudentLogin}
-        onSyncTeachers={(t) => setTeachers(cleanTeacherData(t))}
+        onSyncTeachers={(incoming) => {
+          setTeachers((prev) => {
+            if (incoming.length > 1) {
+              return cleanTeacherData(incoming);
+            }
+            const map = new Map<string, Teacher>(prev.map((t) => [t.id, t]));
+            incoming.forEach((t) => map.set(t.id, t));
+            return cleanTeacherData(Array.from(map.values()));
+          });
+        }}
         onSyncStudents={(s) => setStudents(s)}
       />
     );
@@ -786,6 +919,7 @@ export default function App() {
       <StudentPortalView
         student={loggedInStudent}
         missions={missions}
+        teachers={teachers}
         onLogout={handleLogout}
         onSubmitQuiz={handleSimulateStudentQuiz}
       />
@@ -1062,7 +1196,10 @@ export default function App() {
             teachers={teachers}
             onSelectStudent={(s) => setProfileStudent(s)}
             onOpenStudentProfile={(s) => setProfileStudent(s)}
-            onOpenCertificate={(s) => setCertificateStudent(s)}
+            onOpenCertificate={(s, tName) => {
+              setCertificateStudent(s);
+              setCertificateIssuer(tName || currentTeacher?.name || 'م. أبانوب وجيه (مدير المنظومة)');
+            }}
           />
         )}
 
@@ -1071,8 +1208,11 @@ export default function App() {
           <SecretMissionsView
             missions={missions}
             students={students}
+            teachers={teachers}
+            currentTeacher={currentTeacher}
             onAddMission={handleAddMission}
             onDeleteMission={handleDeleteMission}
+            onRevokeSubmission={handleRevokeMissionSubmission}
             onGradeSubmission={handleGradeSubmission}
             onSimulateStudentQuiz={handleSimulateStudentQuiz}
           />
@@ -1124,10 +1264,17 @@ export default function App() {
           isOpen={!!profileStudent}
           onClose={() => setProfileStudent(null)}
           missions={missions}
+          teachers={teachers}
+          currentTeacher={currentTeacher}
           onOpenAddPoints={(s, type) => setAddPointsState({ student: s, defaultType: type })}
           onOpenIdCard={(s) => setIdCardStudent(s)}
-          onOpenCertificate={(s) => setCertificateStudent(s)}
+          onOpenCertificate={(s) => {
+            setCertificateStudent(s);
+            setCertificateIssuer(currentTeacher?.name || 'م. أبانوب وجيه (مدير المنظومة)');
+          }}
           onEditStudent={(s) => setEditingStudent(s)}
+          onRevokeMissionSubmission={handleRevokeMissionSubmission}
+          onDeletePointLog={handleDeletePointLog}
         />
       )}
 
@@ -1145,6 +1292,7 @@ export default function App() {
         student={certificateStudent}
         isOpen={!!certificateStudent}
         onClose={() => setCertificateStudent(null)}
+        issuerName={certificateIssuer || currentTeacher?.name || 'م. أبانوب وجيه (مدير المنظومة)'}
       />
 
       {currentIdCardStudent && (
@@ -1164,6 +1312,8 @@ export default function App() {
           student={currentAddPointsStudent}
           isOpen={!!addPointsState}
           onClose={() => setAddPointsState(null)}
+          teachers={teachers}
+          currentTeacher={currentTeacher}
           onAddPoint={handleAddPoint}
         />
       )}
@@ -1179,6 +1329,7 @@ export default function App() {
         isOpen={isAddStudentOpen}
         onClose={() => setIsAddStudentOpen(false)}
         existingCount={students.length}
+        currentTeacher={currentTeacher}
         onAddStudent={async (newStudent) => {
           setStudents((prev) => [newStudent, ...prev]);
           setProfileStudent(newStudent);

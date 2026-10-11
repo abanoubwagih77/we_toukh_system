@@ -16,7 +16,8 @@ import {
   Cpu,
   ShieldCheck,
   Calendar,
-  Layers
+  Layers,
+  Building
 } from 'lucide-react';
 import { exportAttributionLogs } from '../utils/exportUtils';
 import { TeacherAvatar } from './TeacherAvatar';
@@ -101,30 +102,21 @@ export const TeacherAttributionView: React.FC<TeacherAttributionViewProps> = ({
     });
 
     allLogsWithStudent.forEach(({ log, student }) => {
-      const teacherName = log.teacherName || 'معلم المادة التكنولوجية';
-      if (!map.has(teacherName)) {
-        const found = teachers.find((t) => t.name === teacherName);
-        map.set(teacherName, {
-          name: teacherName,
-          teacherObj: found,
-          positivePoints: 0,
-          negativePoints: 0,
-          positiveCount: 0,
-          negativeCount: 0,
-          studentsRewarded: new Set(),
-          topCategory: {}
-        });
+      const teacherName = log.teacherName?.trim();
+      if (!teacherName) return;
+      // Only accumulate statistics for actual registered teachers in the teachers list
+      if (map.has(teacherName)) {
+        const entry = map.get(teacherName)!;
+        if (log.type === 'positive') {
+          entry.positivePoints += log.points;
+          entry.positiveCount += 1;
+          entry.studentsRewarded.add(student.name);
+        } else {
+          entry.negativePoints += Math.abs(log.points);
+          entry.negativeCount += 1;
+        }
+        entry.topCategory[log.category] = (entry.topCategory[log.category] || 0) + 1;
       }
-      const entry = map.get(teacherName)!;
-      if (log.type === 'positive') {
-        entry.positivePoints += log.points;
-        entry.positiveCount += 1;
-        entry.studentsRewarded.add(student.name);
-      } else {
-        entry.negativePoints += Math.abs(log.points);
-        entry.negativeCount += 1;
-      }
-      entry.topCategory[log.category] = (entry.topCategory[log.category] || 0) + 1;
     });
 
     return Array.from(map.values());
@@ -175,8 +167,19 @@ export const TeacherAttributionView: React.FC<TeacherAttributionViewProps> = ({
     return students.find((s) => s.id === selectedStudentId) || null;
   }, [students, selectedStudentId]);
 
-  const activeStudentTeacherBreakdown = useMemo(() => {
-    if (!activeStudent) return [];
+  const registeredTeacherNames = useMemo(() => {
+    return new Set(teachers.map((t) => t.name.trim()));
+  }, [teachers]);
+
+  const { activeStudentTeacherBreakdown, activeStudentAdminLogs, activeStudentAdminPoints } = useMemo(() => {
+    if (!activeStudent) {
+      return {
+        activeStudentTeacherBreakdown: [],
+        activeStudentAdminLogs: [],
+        activeStudentAdminPoints: 0
+      };
+    }
+
     const map = new Map<
       string,
       {
@@ -186,23 +189,37 @@ export const TeacherAttributionView: React.FC<TeacherAttributionViewProps> = ({
         logs: PointLog[];
       }
     >();
+    const adminLogs: PointLog[] = [];
+    let adminPts = 0;
 
     activeStudent.logs.forEach((log) => {
-      const tName = log.teacherName || 'معلم المادة التكنولوجية';
-      if (!map.has(tName)) {
-        map.set(tName, { teacherName: tName, positive: 0, negative: 0, logs: [] });
-      }
-      const item = map.get(tName)!;
-      if (log.type === 'positive') {
-        item.positive += log.points;
+      const rawName = (log.teacherName || '').trim();
+      const isRegistered = registeredTeacherNames.has(rawName);
+
+      if (isRegistered) {
+        if (!map.has(rawName)) {
+          map.set(rawName, { teacherName: rawName, positive: 0, negative: 0, logs: [] });
+        }
+        const item = map.get(rawName)!;
+        if (log.type === 'positive') {
+          item.positive += log.points;
+        } else {
+          item.negative += Math.abs(log.points);
+        }
+        item.logs.push(log);
       } else {
-        item.negative += Math.abs(log.points);
+        adminLogs.push(log);
+        if (log.type === 'positive') adminPts += log.points;
+        else adminPts -= Math.abs(log.points);
       }
-      item.logs.push(log);
     });
 
-    return Array.from(map.values()).sort((a, b) => b.positive - a.positive);
-  }, [activeStudent]);
+    return {
+      activeStudentTeacherBreakdown: Array.from(map.values()).sort((a, b) => b.positive - a.positive),
+      activeStudentAdminLogs: adminLogs,
+      activeStudentAdminPoints: adminPts
+    };
+  }, [activeStudent, registeredTeacherNames]);
 
   return (
     <div className="space-y-6" dir="rtl">
@@ -413,6 +430,31 @@ export const TeacherAttributionView: React.FC<TeacherAttributionViewProps> = ({
                 })}
               </div>
             )}
+
+            {/* Administrative / System Balance */}
+            {activeStudentAdminLogs.length > 0 && (
+              <div className="mt-3 p-3.5 bg-amber-50/80 border border-amber-200/80 rounded-2xl flex items-center justify-between gap-3 text-xs">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-xl bg-amber-200/80 text-amber-900 flex items-center justify-center font-bold shrink-0">
+                    <Building className="w-4 h-4 text-amber-800" />
+                  </div>
+                  <div>
+                    <span className="font-extrabold text-amber-950 block">
+                      الرصيد الإفتتاحي والإجراءات الإدارية ({activeStudentAdminLogs.length} إجراء)
+                    </span>
+                    <span className="text-[11px] text-amber-750 block">
+                      معاملات رسمية صادرة من إدارة شؤون الطلاب والنظام المدرسي (ترحيب وتسكين الطلاب)
+                    </span>
+                  </div>
+                </div>
+
+                <div className="text-left font-mono shrink-0">
+                  <span className="px-2.5 py-1 rounded-xl text-xs font-black bg-amber-200 text-amber-900">
+                    {activeStudentAdminPoints >= 0 ? `+${activeStudentAdminPoints}` : activeStudentAdminPoints} نقطة
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -592,23 +634,39 @@ export const TeacherAttributionView: React.FC<TeacherAttributionViewProps> = ({
 
                   {/* Teacher Awarder & Points Display */}
                   <div className="flex items-center justify-between md:justify-end gap-5 shrink-0 border-t md:border-t-0 pt-3 md:pt-0 border-slate-100">
-                    {/* The Teacher Who Awarded It */}
+                    {/* The Teacher / Entity Who Awarded It */}
                     <div className="text-right">
-                      <div className="flex items-center gap-2 justify-end">
-                        <div className="text-right">
-                          <span className="text-xs font-black text-slate-900 block">
-                            {log.teacherName || 'معلم المادة التكنولوجية'}
-                          </span>
-                          <span className="text-[10px] text-purple-700 font-semibold block">
-                            {teacherObj?.subject || 'مشرف تقني'}
-                          </span>
+                      {teacherObj ? (
+                        <div className="flex items-center gap-2 justify-end">
+                          <div className="text-right">
+                            <span className="text-xs font-black text-slate-900 block">
+                              {log.teacherName}
+                            </span>
+                            <span className="text-[10px] text-purple-700 font-semibold block">
+                              {teacherObj.subject || 'كادر التدريس والتدريب'}
+                            </span>
+                          </div>
+                          <TeacherAvatar
+                            name={log.teacherName}
+                            avatar={teacherObj.avatar}
+                            size="sm"
+                          />
                         </div>
-                        <TeacherAvatar
-                          name={log.teacherName}
-                          avatar={teacherObj?.avatar}
-                          size="sm"
-                        />
-                      </div>
+                      ) : (
+                        <div className="flex items-center gap-2 justify-end">
+                          <div className="text-right">
+                            <span className="text-xs font-extrabold text-amber-950 block">
+                              {log.teacherName || 'إدارة شؤون الطلاب'}
+                            </span>
+                            <span className="text-[10px] text-amber-700 font-semibold block">
+                              إجراء إداري رسمي / نظام
+                            </span>
+                          </div>
+                          <div className="w-8 h-8 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center shrink-0 border border-amber-200">
+                            <Building className="w-4 h-4" />
+                          </div>
+                        </div>
+                      )}
                       <span className="text-[10px] text-slate-400 block mt-0.5 font-mono">
                         {logDate}
                       </span>

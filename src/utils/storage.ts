@@ -108,19 +108,29 @@ export function migrateLegacyNames(
   const OLD_NAME_PART = 'بهاء';
   const TARGET_NAME = 'م. أبانوب وجيه (مدير المنظومة)';
 
-  // 1. Migrate Teachers
-  const updatedTeachers = teachers.map((t) => {
-    if (t.id === 't-admin' || (t.role === 'admin' && t.name.includes(OLD_NAME_PART))) {
-      migrated = true;
-      return {
-        ...t,
-        name: TARGET_NAME,
-        username: t.username || 'admin',
-        title: 'مهندس'
-      };
-    }
-    return t;
-  });
+  // 1. Migrate Teachers (filtering out non-teacher administrative entities)
+  const updatedTeachers = teachers
+    .filter((t) => {
+      if (!t || !t.name) return false;
+      const clean = t.name.trim();
+      if (clean === 'إدارة شؤون الطلاب' || clean.includes('شؤون الطلاب') || t.username === 'affairs' || t.username === 'students_affairs') {
+        migrated = true;
+        return false;
+      }
+      return true;
+    })
+    .map((t) => {
+      if (t.id === 't-admin' || (t.role === 'admin' && t.name.includes(OLD_NAME_PART))) {
+        migrated = true;
+        return {
+          ...t,
+          name: TARGET_NAME,
+          username: t.username || 'admin',
+          title: 'مهندس'
+        };
+      }
+      return t;
+    });
 
   // 2. Migrate Missions
   const updatedMissions = missions.map((m) => {
