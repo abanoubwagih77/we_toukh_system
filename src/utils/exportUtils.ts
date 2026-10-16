@@ -28,22 +28,34 @@ export function exportToCSV(filename: string, rows: (string | number)[][]): void
 }
 
 /**
- * Exports complete student roster with scores, badges and contact details.
+ * Exports complete student roster with scores, badges, attendance and teachers breakdown.
  */
 export function exportStudentsRoster(students: Student[]): void {
+  exportComprehensiveStudentReport(students);
+}
+
+/**
+ * 1. Comprehensive Student Master Report (One row per student)
+ * Includes all personal details, grade, major, attendance, points, percentage, and awarding teachers list.
+ */
+export function exportComprehensiveStudentReport(students: Student[]): void {
   const headers = [
-    'كود الطالب',
-    'الرقم القومي',
-    'اسم الطالب',
-    'الصف الدراسي',
+    'م',
+    'كود الطالب الأكاديمي',
+    'الرقم القومي (14 رقم)',
+    'اسم الطالب الرباعي',
+    'الصف والفصل الدراسي',
     'التخصص التكنولوجي',
     'رصيد النقاط الحالي',
-    'إجمالي النقاط الإيجابية',
-    'إجمالي المخالفات',
-    'نسبة الإنجاز %',
-    'الرتبة والبادج',
-    'نسبة الحضور %',
+    'نسبة الإنجاز % (كل 4 نقاط = 1%)',
+    'الرتبة والوسام الحالي',
+    'نسبة الحضور والالتزام %',
     'المعدل السلوكي',
+    'إجمالي النقاط الإيجابية',
+    'إجمالي الخصومات والمخالفات',
+    'عدد الحركات المسجلة',
+    'المعلمون والمهندسون الراصدون للطالب',
+    'تفاصيل آخر إجراء تم رصده',
     'المهام السرية المنجزة',
     'البريد الإلكتروني',
     'رقم الهاتف'
@@ -57,49 +69,98 @@ export function exportStudentsRoster(students: Student[]): void {
     novice: 'مبتدئ (0-29%)'
   };
 
-  const data = students.map((s) => [
-    s.code,
-    s.nationalId,
-    s.name,
-    s.grade,
-    s.major,
-    s.points,
-    s.totalPositive,
-    s.totalNegative,
-    `${s.percentage}%`,
-    badgeLabels[s.badge] || s.badge,
-    `${s.attendanceRate}%`,
-    s.behavioralScore,
-    s.secretMissionsCompleted,
-    s.email,
-    s.phone
-  ]);
+  const data = students.map((s, idx) => {
+    // Collect distinct teachers who gave points to this student
+    const teacherNames = Array.from(
+      new Set((s.logs || []).map((l) => l.teacherName).filter(Boolean))
+    );
+    const teachersSummary = teacherNames.length > 0 ? teacherNames.join(' | ') : 'لا يوجد راصدين بعد';
+
+    // Last log info
+    const lastLog = (s.logs || [])[s.logs.length - 1];
+    const lastLogSummary = lastLog
+      ? `${lastLog.category} (${lastLog.points > 0 ? `+${lastLog.points}` : lastLog.points}) بواسطة: ${lastLog.teacherName}`
+      : 'لا توجد حركات مسجلة';
+
+    return [
+      idx + 1,
+      s.code,
+      `'${s.nationalId}`, // apostrophe prefix ensures Excel treats 14 digits as text
+      s.name,
+      s.grade,
+      s.major,
+      s.points,
+      `${s.percentage}%`,
+      badgeLabels[s.badge] || s.badge,
+      `${s.attendanceRate}%`,
+      s.behavioralScore,
+      s.totalPositive,
+      s.totalNegative,
+      (s.logs || []).length,
+      teachersSummary,
+      lastLogSummary,
+      s.secretMissionsCompleted,
+      s.email,
+      s.phone
+    ];
+  });
 
   const timestamp = new Date().toISOString().split('T')[0];
-  exportToCSV(`كشف_طلاب_مدرسة_WE_${timestamp}.csv`, [headers, ...data]);
+  exportToCSV(`كشف_بيانات_شامل_لطلاب_مدرسة_WE_${timestamp}.csv`, [headers, ...data]);
 }
 
 /**
- * Exports all points and infractions attribution logs showing student and awarding engineer/teacher.
+ * 2. Full Action & Attribution Master History (One row per action log for every student)
+ * Answers exactly: Who got points, what they did, who gave them points, attendance, notes, and full history.
  */
-export function exportAttributionLogs(students: Student[]): void {
+export function exportFullActionHistoryMaster(students: Student[]): void {
   const headers = [
-    'تاريخ الإجراء',
-    'اسم الطالب',
-    'كود الطالب',
-    'تخصص الطالب',
+    'م',
+    'تاريخ وتوقيت الإجراء',
+    'اسم الطالب الرباعي',
+    'كود الطالب الأكاديمي',
+    'الرقم القومي',
+    'الصف والفصل الدراسي',
+    'التخصص التكنولوجي',
+    'نسبة حضور الطالب %',
     'المعلم / المهندس الراصد',
     'نوع الإجراء',
     'قيمة النقاط',
-    'بند التقييم',
-    'الملاحظة والتوجيه'
+    'بند التقييم والمشاركة',
+    'الملاحظة والتوجيه الإداري',
+    'رصيد نقاط الطالب الحالي',
+    'نسبة إنجاز الطالب الحالية %'
   ];
 
-  const allLogs: (string | number)[][] = [];
+  const allRows: (string | number)[][] = [];
+  let counter = 1;
 
   students.forEach((student) => {
+    if (!student.logs || student.logs.length === 0) {
+      // Still include student with an initial status row so no student is left behind
+      allRows.push([
+        counter++,
+        'تسجيل جديد',
+        student.name,
+        student.code,
+        `'${student.nationalId}`,
+        student.grade,
+        student.major,
+        `${student.attendanceRate}%`,
+        'إدارة شؤون الطلاب',
+        'رصيد بداية',
+        student.points,
+        'تسجيل الطالب في المنظومة',
+        'لم يتم رصد حركات إضافية بعد',
+        student.points,
+        `${student.percentage}%`
+      ]);
+      return;
+    }
+
     student.logs.forEach((log) => {
-      allLogs.push([
+      allRows.push([
+        counter++,
         new Date(log.createdAt).toLocaleDateString('ar-EG', {
           year: 'numeric',
           month: 'short',
@@ -109,18 +170,30 @@ export function exportAttributionLogs(students: Student[]): void {
         }),
         student.name,
         student.code,
+        `'${student.nationalId}`,
+        student.grade,
         student.major,
+        `${student.attendanceRate}%`,
         log.teacherName || 'معلم المادة التكنولوجية',
-        log.type === 'positive' ? 'إيجابي (+)' : 'مخالفة (-)',
+        log.type === 'positive' ? 'مكافأة إيجابية (+)' : 'مخالفة سلوكية (-)',
         log.points > 0 ? `+${log.points}` : `${log.points}`,
         log.category,
-        log.note
+        log.note || 'بدون ملاحظات',
+        student.points,
+        `${student.percentage}%`
       ]);
     });
   });
 
   const timestamp = new Date().toISOString().split('T')[0];
-  exportToCSV(`سجل_نقاط_المعلمين_والمهندسين_WE_${timestamp}.csv`, [headers, ...allLogs]);
+  exportToCSV(`السجل_الإداري_التفصيلي_لحركات_طلاب_WE_${timestamp}.csv`, [headers, ...allRows]);
+}
+
+/**
+ * Exports all points and infractions attribution logs showing student and awarding engineer/teacher.
+ */
+export function exportAttributionLogs(students: Student[]): void {
+  exportFullActionHistoryMaster(students);
 }
 
 /**

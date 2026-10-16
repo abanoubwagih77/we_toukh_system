@@ -236,7 +236,7 @@ export const StudentPortalView: React.FC<StudentPortalViewProps> = ({
               <div className="w-full bg-white/20 h-2.5 rounded-full overflow-hidden">
                 <div
                   className="h-full bg-linear-to-r from-cyan-400 to-amber-300 rounded-full transition-all duration-500"
-                  style={{ width: `${student.percentage}%` }}
+                  style={{ width: `${Math.min(100, Math.max(0, student.percentage))}%` }}
                 />
               </div>
 

@@ -127,7 +127,7 @@ export const StudentCard: React.FC<StudentCardProps> = ({
                   ? 'bg-blue-500'
                   : 'bg-amber-500'
               }`}
-              style={{ width: `${student.percentage}%` }}
+              style={{ width: `${Math.min(100, Math.max(0, student.percentage))}%` }}
             />
           </div>
 

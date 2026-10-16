@@ -92,10 +92,11 @@ export const LeaderboardView: React.FC<LeaderboardViewProps> = ({
 
         <button
           onClick={() => exportStudentsRoster(students)}
-          className="flex items-center gap-2 px-4 py-2.5 bg-white hover:bg-amber-50 text-slate-950 text-xs font-black rounded-xl shadow-md transition-all hover:scale-105 active:scale-95 shrink-0"
+          className="flex items-center gap-2 px-4 py-2.5 bg-white hover:bg-amber-50 text-slate-950 text-xs font-black rounded-xl shadow-md transition-all hover:scale-105 active:scale-95 shrink-0 cursor-pointer"
+          title="تصدير كشف شامل ببيانات جميع طلاب المدرسة وأرصدتهم ونسبهم ونسبة الحضور في ملف إكسيل"
         >
           <Award className="w-4 h-4 text-amber-600" />
-          <span>تصدير كشف الأوائل (Excel)</span>
+          <span>تصدير كشف جميع الطلاب (Excel)</span>
         </button>
       </div>
 

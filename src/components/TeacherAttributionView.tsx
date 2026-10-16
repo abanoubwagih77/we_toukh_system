@@ -245,10 +245,11 @@ export const TeacherAttributionView: React.FC<TeacherAttributionViewProps> = ({
 
         <button
           onClick={() => exportAttributionLogs(students)}
-          className="flex items-center gap-2 px-4 py-2.5 bg-white hover:bg-purple-50 text-purple-950 text-xs font-black rounded-xl shadow-md transition-all hover:scale-105 active:scale-95 shrink-0"
+          className="flex items-center gap-2 px-4 py-2.5 bg-white hover:bg-purple-50 text-purple-950 text-xs font-black rounded-xl shadow-md transition-all hover:scale-105 active:scale-95 shrink-0 cursor-pointer"
+          title="تصدير شيت إكسيل شامل لكل حركات ونقاط جميع الطلاب والمهندسين الراصدين والملاحظات"
         >
           <Download className="w-4 h-4 text-purple-700" />
-          <span>تصدير السجل الكامل (Excel)</span>
+          <span>تصدير سجل حركات جميع الطلاب والراصدين (Excel)</span>
         </button>
       </div>
 

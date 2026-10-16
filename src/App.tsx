@@ -103,7 +103,12 @@ const cleanMissionData = (list: SecretMission[]): SecretMission[] => {
 export default function App() {
   const [students, setStudents] = useState<Student[]>(() => {
     const saved = safeLocalStorageGet<Student[]>(STORAGE_KEY_STUDENTS, INITIAL_STUDENTS);
-    return saved && saved.length > 0 ? saved : INITIAL_STUDENTS;
+    const raw = saved && saved.length > 0 ? saved : INITIAL_STUDENTS;
+    return raw.map((s) => ({
+      ...s,
+      percentage: calculatePercentage(s.points, s.targetPoints),
+      badge: calculateBadge(calculatePercentage(s.points, s.targetPoints))
+    }));
   });
 
   const [teachers, setTeachers] = useState<Teacher[]>(() => {
@@ -210,7 +215,12 @@ export default function App() {
     const unsubscribeStudents = subscribeToStudents(
       (cloudStudents) => {
         if (cloudStudents.length > 0) {
-          setStudents(cloudStudents);
+          const calibrated = cloudStudents.map((s) => ({
+            ...s,
+            percentage: calculatePercentage(s.points, s.targetPoints),
+            badge: calculateBadge(calculatePercentage(s.points, s.targetPoints))
+          }));
+          setStudents(calibrated);
         } else if (!initialSyncCompleted && students.length > 0) {
           // If cloud is brand new but this machine has students, sync them up to the cloud!
           syncAllStudentsToCloud(students).catch(console.error);

@@ -71,16 +71,18 @@ export function calculateBadge(percentage: number): BadgeTier {
   return 'novice';
 }
 
-export function calculatePercentage(points: number, targetPoints: number = 50): number {
-  if (targetPoints <= 0) return 0;
-  const pct = Math.round((points / targetPoints) * 100);
-  return Math.max(0, Math.min(100, pct));
+export function calculatePercentage(points: number, _targetPoints?: number): number {
+  if (points <= 0) return 0;
+  // Rule: Every 4 points = 1% (4 pts -> 1%, 8 pts -> 2%, 50 pts -> 12.5%, 70 pts -> 17.5%, 71 pts -> 17.8%, 400 pts -> 100%, 404 pts -> 101%)
+  // Uncapped percentage: allows percentages beyond 100% naturally
+  const rawPct = points / 4;
+  return rawPct % 1 === 0 ? rawPct : Number(rawPct.toFixed(1));
 }
 
 export function calculateNextBadgeInfo(
   currentPercentage: number,
   currentPoints: number,
-  targetPoints: number = 50
+  _targetPoints?: number
 ): { nextBadge: BadgeInfo | null; pointsNeeded: number; percentNeeded: number } {
   if (currentPercentage >= 90) {
     return { nextBadge: null, pointsNeeded: 0, percentNeeded: 0 };
@@ -92,9 +94,10 @@ export function calculateNextBadgeInfo(
   else targetTier = 'leader';
 
   const nextBadge = BADGE_TIERS[targetTier];
-  const pointsRequired = Math.ceil((nextBadge.minPercent / 100) * targetPoints);
+  // Since 1% = 4 points, points required for minPercent is minPercent * 4
+  const pointsRequired = nextBadge.minPercent * 4;
   const pointsNeeded = Math.max(1, pointsRequired - currentPoints);
-  const percentNeeded = Math.max(1, nextBadge.minPercent - currentPercentage);
+  const percentNeeded = Math.max(1, Math.ceil(nextBadge.minPercent - currentPercentage));
 
   return { nextBadge, pointsNeeded, percentNeeded };
 }

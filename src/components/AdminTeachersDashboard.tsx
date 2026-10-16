@@ -44,7 +44,12 @@ import {
   UserX
 } from 'lucide-react';
 import { compressImageFile } from '../utils/imageUtils';
-import { exportSystemDatabaseJSON, exportTeachersAccounts } from '../utils/exportUtils';
+import {
+  exportSystemDatabaseJSON,
+  exportTeachersAccounts,
+  exportComprehensiveStudentReport,
+  exportFullActionHistoryMaster
+} from '../utils/exportUtils';
 import { TeacherAvatar } from './TeacherAvatar';
 
 interface AdminTeachersDashboardProps {
@@ -614,6 +619,56 @@ export const AdminTeachersDashboard: React.FC<AdminTeachersDashboardProps> = ({
         onChange={handleTeacherPhotoFile}
         className="hidden"
       />
+
+      {/* Student Data & Excel Export Command Center (Admin Only) */}
+      <div className="bg-linear-to-r from-purple-950 via-[#4A154B] to-slate-900 text-white p-5 sm:p-6 rounded-3xl shadow-lg border border-purple-800/60 relative overflow-hidden">
+        <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-5 relative z-10">
+          <div className="space-y-1.5 max-w-2xl">
+            <div className="flex items-center gap-2">
+              <span className="p-2 bg-amber-400 text-slate-950 rounded-xl shadow-xs">
+                <FileSpreadsheet className="w-5 h-5" />
+              </span>
+              <h3 className="text-base sm:text-lg font-black tracking-wide">
+                مركز سحب واستخراج بيانات الطلاب (تقارير Excel الإدارية)
+              </h3>
+              <span className="px-2.5 py-0.5 rounded-full bg-amber-400/20 text-amber-300 border border-amber-400/40 text-[10px] font-black">
+                حصري للإدارة (Admin Access)
+              </span>
+            </div>
+            <p className="text-xs text-purple-100 leading-relaxed">
+              سحب تقارير تفصيلية شاملة لجميع طلاب المدرسة بلا استثناء (ليس الأوائل فقط) متضمنة الأرقام القومية، الصفوف، الأرصدة، نسب الإنجاز (كل 4 نقاط = 1% مفتوحة)، وسجل كل حركة رصد ومن قام بإعطاء النقطة وتوجيهه.
+            </p>
+            <div className="flex items-center gap-4 text-[11px] text-purple-200 pt-1 font-mono">
+              <span>👥 إجمالي الطلاب: <strong className="text-white">{students.length} طالب</strong></span>
+              <span>⚡ إجمالي الحركات المرصودة: <strong className="text-white">{students.reduce((acc, s) => acc + (s.logs?.length || 0), 0)} حركة</strong></span>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2.5 w-full lg:w-auto shrink-0">
+            {/* Button 1: Master Action History */}
+            <button
+              type="button"
+              onClick={() => exportFullActionHistoryMaster(students)}
+              className="flex items-center gap-2 px-4 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-black rounded-xl shadow-md transition-all hover:scale-105 active:scale-95 cursor-pointer"
+              title="سحب كل حركة ونقطة رُصدت لأي طالب مع اسم المعلم/المهندس الراصد والبند والملاحظة وتاريخ الإجراء"
+            >
+              <FileSpreadsheet className="w-4 h-4 text-slate-950" />
+              <span>سحب السجل الإداري الشامل للحركات والراصدين (Excel)</span>
+            </button>
+
+            {/* Button 2: Comprehensive Students Roster */}
+            <button
+              type="button"
+              onClick={() => exportComprehensiveStudentReport(students)}
+              className="flex items-center gap-2 px-4 py-2.5 bg-white hover:bg-purple-50 text-purple-950 text-xs font-black rounded-xl shadow-md transition-all hover:scale-105 active:scale-95 cursor-pointer"
+              title="سحب كشف كامل لكل طلاب المدرسة ببياناتهم الأكاديمية والشخصية والأرصدة والنسب ونسبة الحضور والراصدين"
+            >
+              <Download className="w-4 h-4 text-purple-700" />
+              <span>سحب كشف بيانات جميع الطلاب (Excel)</span>
+            </button>
+          </div>
+        </div>
+      </div>
 
       {/* Database & Dual-Layer Persistence Hub */}
       <div className="bg-white p-4 sm:p-5 rounded-3xl border border-slate-200 shadow-xs flex flex-col md:flex-row items-center justify-between gap-4">

@@ -345,7 +345,7 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
                 <div className="w-full bg-slate-200 h-3 rounded-full overflow-hidden relative mb-3">
                   <div
                     className="bg-linear-to-r from-purple-600 via-indigo-600 to-amber-500 h-full rounded-full transition-all duration-500"
-                    style={{ width: `${student.percentage}%` }}
+                    style={{ width: `${Math.min(100, Math.max(0, student.percentage))}%` }}
                   ></div>
                 </div>
 
