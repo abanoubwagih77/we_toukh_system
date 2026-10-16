@@ -636,7 +636,7 @@ export const AdminTeachersDashboard: React.FC<AdminTeachersDashboardProps> = ({
               </span>
             </div>
             <p className="text-xs text-purple-100 leading-relaxed">
-              سحب تقارير تفصيلية شاملة لجميع طلاب المدرسة بلا استثناء (ليس الأوائل فقط) متضمنة الأرقام القومية، الصفوف، الأرصدة، نسب الإنجاز (كل 4 نقاط = 1% مفتوحة)، وسجل كل حركة رصد ومن قام بإعطاء النقطة وتوجيهه.
+              سحب تقارير تفصيلية شاملة لجميع طلاب المدرسة بلا استثناء (ليس الأوائل فقط) متضمنة الأرقام القومية، الصفوف، الأرصدة، نسب الإنجاز (كل 2 نقطة = 1% مفتوحة)، وسجل كل حركة رصد ومن قام بإعطاء النقطة وتوجيهه.
             </p>
             <div className="flex items-center gap-4 text-[11px] text-purple-200 pt-1 font-mono">
               <span>👥 إجمالي الطلاب: <strong className="text-white">{students.length} طالب</strong></span>
